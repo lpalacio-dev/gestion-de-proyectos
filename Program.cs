@@ -1,6 +1,15 @@
+
+using gestion_de_proyectos;
+using Microsoft.EntityFrameworkCore;
+using Npgsql.EntityFrameworkCore.PostgreSQL;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
+var connectionString = builder.Configuration.GetConnectionString("PostgreSQLConnection");
+// Registra el DbContext usando el proveedor de PostgreSQL
+builder.Services.AddDbContext<ProjectManagementContext>(options =>
+    options.UseNpgsql(connectionString));
 
 builder.Services.AddControllers();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
