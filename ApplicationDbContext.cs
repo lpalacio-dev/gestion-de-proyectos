@@ -3,9 +3,9 @@ using Microsoft.EntityFrameworkCore;
 
 namespace gestion_de_proyectos
 {
-    public class ProjectManagementContext : DbContext
+    public class ApplicationDbContext : DbContext
     {
-        public ProjectManagementContext(DbContextOptions<ProjectManagementContext> options)
+        public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options)
        : base(options)
         {
         }

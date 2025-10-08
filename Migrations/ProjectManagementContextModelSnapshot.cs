@@ -10,7 +10,7 @@ using gestion_de_proyectos;
 
 namespace gestion_de_proyectos.Migrations
 {
-    [DbContext(typeof(ProjectManagementContext))]
+    [DbContext(typeof(ApplicationDbContext))]
     partial class ProjectManagementContextModelSnapshot : ModelSnapshot
     {
         protected override void BuildModel(ModelBuilder modelBuilder)
