@@ -54,5 +54,11 @@ namespace gestion_de_proyectos.Repositories
             await _context.SaveChangesAsync();
             return true;
         }
+
+        public async Task<bool> ExistsAsync(Guid id)
+        {
+            // Reemplazar Tasks con Projects o Users según el archivo
+            return await _context.Users.AnyAsync(p => p.Id == id);
+        }
     }
 }

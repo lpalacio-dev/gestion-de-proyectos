@@ -1,5 +1,6 @@
 
 using gestion_de_proyectos;
+using gestion_de_proyectos.Profiles;
 using gestion_de_proyectos.Repositories;
 using gestion_de_proyectos.Services;
 using Microsoft.EntityFrameworkCore;
@@ -18,12 +19,15 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+builder.Services.AddAutoMapper(typeof(TaskProfile).Assembly);
 
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IProjectRepository, ProjectRepository>();
+builder.Services.AddScoped<ITaskRepository, TaskRepository>();
 
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IProjectService, ProjectService>();
+builder.Services.AddScoped<ITaskService, TaskService>();
 
 var app = builder.Build();
 

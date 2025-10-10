@@ -16,5 +16,7 @@ namespace gestion_de_proyectos.Repositories
 
         // DELETE
         Task<bool> DeleteUserAsync(Guid id);
+
+        Task<bool> ExistsAsync(Guid id);
     }
 }

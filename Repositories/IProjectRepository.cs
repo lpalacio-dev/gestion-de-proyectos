@@ -11,5 +11,7 @@ namespace gestion_de_proyectos.Repositories
         void Delete(Project project);
         Task<bool> SaveChangesAsync();
 
+        Task<bool> ExistsAsync(Guid id);
+
     }
 }
