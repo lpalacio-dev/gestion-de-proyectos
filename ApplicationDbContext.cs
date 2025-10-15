@@ -1,9 +1,12 @@
 ﻿using gestion_de_proyectos.Models;
+using Microsoft.AspNetCore.Identity; // Necesario para IdentityUser
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 
 namespace gestion_de_proyectos
 {
-    public class ApplicationDbContext : DbContext
+    // Céntrate en esta línea: Ahora hereda de IdentityDbContext<IdentityUser>
+    public class ApplicationDbContext : IdentityDbContext<IdentityUser>
     {
         public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options)
        : base(options)
