@@ -1,5 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using gestion_de_proyectos.Models;
+using Task = System.Threading.Tasks.Task;
 
 namespace gestion_de_proyectos.Repositories
 {
@@ -7,80 +8,61 @@ namespace gestion_de_proyectos.Repositories
     {
         private readonly ApplicationDbContext _context;
 
-        // Constructor: Inyección de dependencia del ApplicationDbContext
         public ProjectRepository(ApplicationDbContext context)
         {
             _context = context;
         }
 
-        // ------------------------------------------------------------------
-        // READ: Obtener un Proyecto por ID (incluyendo el Propietario)
-        // ------------------------------------------------------------------
+        // Obtiene un proyecto por ID, incluyendo relaciones
         public async Task<Project?> GetByIdAsync(Guid id)
         {
-            // Usamos Include() para cargar la información del Owner (User) junto con el Project.
-            // Esto es crucial para poder mapear el OwnerName en el DTO de respuesta.
             return await _context.Projects
-                                 .Include(p => p.Owner)
-                                 .FirstOrDefaultAsync(p => p.Id == id);
-
+                .Include(p => p.Owner)
+                .Include(p => p.ProjectMembers).ThenInclude(pm => pm.User)
+                .FirstOrDefaultAsync(p => p.Id == id);
         }
 
-        // ------------------------------------------------------------------
-        // READ: Obtener todos los Proyectos (incluyendo Propietarios y Tareas)
-        // ------------------------------------------------------------------
-
-        public async Task<IEnumerable<Project>> GetAllAsync()
+        // Devuelve una IQueryable para permitir filtrado en la capa de servicio
+        public Task<IQueryable<Project>> GetAllAsync()
         {
-            // Incluimos tanto el Owner como la colección de Tasks.
-            // Se usa .AsNoTracking() porque solo estamos leyendo, mejorando el rendimiento.
-            return await _context.Projects
-                                 .Include(p => p.Owner)
-                                 .Include(p => p.Tasks)
-                                 .AsNoTracking()
-                                 .ToListAsync();
+            // Nota: No se llama a ToListAsync() aquí. 
+            // Esto permite que el Service filtre y luego ejecute la consulta con ToListAsync.
+            return Task.FromResult(_context.Projects.AsQueryable());
         }
 
-        // ------------------------------------------------------------------
-        // CREATE: Agregar un nuevo Proyecto
-        // ------------------------------------------------------------------
-        public async Task<Project?> AddAsync(Project project)
+        // Agrega un proyecto al contexto
+        public async Task AddAsync(Project project)
         {
             await _context.Projects.AddAsync(project);
-            return project; // Devolvemos el objeto, que tendrá su estado modificado por EF
         }
 
-        // ------------------------------------------------------------------
-        // UPDATE: Marcar el objeto como modificado
-        // ------------------------------------------------------------------
-        public void Update(Project project)
+        // Marca el objeto como modificado (si ya está en el contexto, no se necesita Attach)
+        public Task UpdateAsync(Project project)
         {
-            // EF Core rastrea la entidad, simplemente marcamos su estado como modificado
-            _context.Projects.Update(project);
+            // EF Core rastrea automáticamente los cambios si el objeto fue recuperado del contexto
+            // o se usa: _context.Entry(project).State = EntityState.Modified;
+            return Task.CompletedTask;
         }
 
-        // ------------------------------------------------------------------
-        // DELETE: Eliminar un Proyecto
-        // ------------------------------------------------------------------
-        public void Delete(Project project)
+        // Elimina un proyecto por ID
+        public async Task DeleteAsync(Guid id)
         {
-            // EF Core elimina el proyecto (y potencialmente sus tareas si está configurado en cascada)
-            _context.Projects.Remove(project);
+            var project = await _context.Projects.FindAsync(id);
+            if (project != null)
+            {
+                _context.Projects.Remove(project);
+            }
         }
 
-        // ------------------------------------------------------------------
-        // Commit: Guardar todos los cambios pendientes en la base de datos
-        // ------------------------------------------------------------------
-        public async Task<bool> SaveChangesAsync()
+        // Guarda los cambios pendientes en la base de datos
+        public async Task<int> SaveChangesAsync()
         {
-            // Devuelve true si se guardó al menos 1 cambio
-            return await _context.SaveChangesAsync() >= 1;
+            return await _context.SaveChangesAsync();
         }
 
-
+        // Verifica si un proyecto existe
         public async Task<bool> ExistsAsync(Guid id)
         {
-            // Reemplazar Tasks con Projects o Users según el archivo
             return await _context.Projects.AnyAsync(p => p.Id == id);
         }
 

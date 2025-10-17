@@ -8,6 +8,7 @@ using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
+using gestion_de_proyectos.Models;
 
 
 
@@ -17,12 +18,14 @@ namespace gestion_de_proyectos.Controllers
     [ApiController]
     public class AuthController : ControllerBase
     {
-        private readonly UserManager<IdentityUser> _userManager;
+        // ¡CAMBIO! Usar ApplicationUser en lugar de IdentityUser
+        private readonly UserManager<ApplicationUser> _userManager;
         private readonly RoleManager<IdentityRole> _roleManager;
         private readonly IConfiguration _configuration;
 
         public AuthController(
-            UserManager<IdentityUser> userManager,
+            // ¡CAMBIO! Usar ApplicationUser en lugar de IdentityUser
+            UserManager<ApplicationUser> userManager,
             RoleManager<IdentityRole> roleManager,
             IConfiguration configuration)
         {
@@ -33,12 +36,13 @@ namespace gestion_de_proyectos.Controllers
 
         // MÉTODO PRIVADO: Generador de JWT (Lógica Pendiente)
         // Lo implementamos aquí para tener todo en un solo lugar.
-        private AuthResponseDto GetAuthToken(IdentityUser user, IList<string> roles)
+        private AuthResponseDto GetAuthToken(ApplicationUser user, IList<string> roles)
         {
             var authClaims = new List<Claim>
             {
+                // Mantenemos UserName para el ClaimTypes.Name, que es estándar
                 new Claim(ClaimTypes.Name, user.UserName),
-                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
             };
 
             // Agregar los roles como Claims
@@ -78,24 +82,26 @@ namespace gestion_de_proyectos.Controllers
                 return StatusCode(StatusCodes.Status409Conflict, new { Status = "Error", Message = "El usuario ya existe." });
             }
 
-            IdentityUser user = new IdentityUser()
+            // ¡CAMBIO! Instanciar ApplicationUser y mapear la propiedad Name
+            ApplicationUser user = new ApplicationUser()
             {
                 Email = model.Email,
                 SecurityStamp = Guid.NewGuid().ToString(),
-                UserName = model.Username
+                UserName = model.Username,
+                RegistrationDate = DateTime.UtcNow // Configurar la propiedad migrada
             };
 
             var result = await _userManager.CreateAsync(user, model.Password);
 
-            if (result.Succeeded)
+            if (!result.Succeeded)
             {
                 return StatusCode(StatusCodes.Status500InternalServerError, new { Status = "Error", Message = string.Join(", ", result.Errors.Select(e => e.Description)) });
             }
 
-            // Asignar un rol por defecto (ej. "User") si existe.
-            if (await _roleManager.RoleExistsAsync("User"))
+            // Asignar un rol por defecto
+            if (await _roleManager.RoleExistsAsync("Member"))
             {
-                await _userManager.AddToRoleAsync(user, "User");
+                await _userManager.AddToRoleAsync(user, "Member");
             }
 
             return Ok(new { Status = "Success", Message = "Usuario registrado exitosamente!" });

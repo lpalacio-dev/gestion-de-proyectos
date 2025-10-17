@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using gestion_de_proyectos;
@@ -11,9 +12,11 @@ using gestion_de_proyectos;
 namespace gestion_de_proyectos.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ProjectManagementContextModelSnapshot : ModelSnapshot
+    [Migration("20251015211559_ApplicationUserIdentityIntegration")]
+    partial class ApplicationUserIdentityIntegration
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -253,25 +256,6 @@ namespace gestion_de_proyectos.Migrations
                     b.ToTable("Projects");
                 });
 
-            modelBuilder.Entity("gestion_de_proyectos.Models.ProjectMember", b =>
-                {
-                    b.Property<Guid>("ProjectId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("UserId")
-                        .HasColumnType("text");
-
-                    b.Property<string>("Role")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.HasKey("ProjectId", "UserId");
-
-                    b.HasIndex("UserId");
-
-                    b.ToTable("ProjectMembers");
-                });
-
             modelBuilder.Entity("gestion_de_proyectos.Models.Task", b =>
                 {
                     b.Property<Guid>("Id")
@@ -373,25 +357,6 @@ namespace gestion_de_proyectos.Migrations
                     b.Navigation("Owner");
                 });
 
-            modelBuilder.Entity("gestion_de_proyectos.Models.ProjectMember", b =>
-                {
-                    b.HasOne("gestion_de_proyectos.Models.Project", "Project")
-                        .WithMany("ProjectMembers")
-                        .HasForeignKey("ProjectId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("gestion_de_proyectos.Models.ApplicationUser", "User")
-                        .WithMany("ProjectMemberships")
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Project");
-
-                    b.Navigation("User");
-                });
-
             modelBuilder.Entity("gestion_de_proyectos.Models.Task", b =>
                 {
                     b.HasOne("gestion_de_proyectos.Models.ApplicationUser", "AssignedUser")
@@ -414,14 +379,10 @@ namespace gestion_de_proyectos.Migrations
                     b.Navigation("AssignedTasks");
 
                     b.Navigation("OwnedProjects");
-
-                    b.Navigation("ProjectMemberships");
                 });
 
             modelBuilder.Entity("gestion_de_proyectos.Models.Project", b =>
                 {
-                    b.Navigation("ProjectMembers");
-
                     b.Navigation("Tasks");
                 });
 #pragma warning restore 612, 618

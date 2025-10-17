@@ -1,25 +1,22 @@
-﻿// ¡Nuevo alias de using!
-using TaskModelo = gestion_de_proyectos.Models.Task;
-
-
+﻿using System.Threading.Tasks;
+using EntityTask = gestion_de_proyectos.Models.Task;
 namespace gestion_de_proyectos.Repositories
 {
     public interface ITaskRepository
     {
-        // Obtener todas las tareas, incluyendo Project y AssignedUser para el DTO de respuesta
-        Task<IEnumerable<TaskModelo>> GetAllAsync();
+        // Obtener una tarea por su Id
+        Task<EntityTask?> GetByIdAsync(Guid id);
 
-        // Obtener una tarea por ID, incluyendo Project y AssignedUser
-        Task<TaskModelo?> GetByIdAsync(Guid id);
+        // Obtener todas las tareas (o scoped by ProjectId, pero mantendremos general)
+        Task<IQueryable<EntityTask>> GetAllAsync();
 
-        // Agregar una nueva tarea
-        Task AddAsync(TaskModelo task);
+        // CRUD esencial
+        Task AddAsync(EntityTask task);
+        void Update(EntityTask task);
+        void Delete(EntityTask task);
 
-        // Actualizar una tarea existente
-        Task UpdateAsync(TaskModelo task);
-
-        // Eliminar una tarea por ID
-        Task DeleteAsync(Guid id);
+        // Método para guardar los cambios en la base de datos
+        Task<bool> SaveChangesAsync();
 
         // Verificar la existencia de una tarea (útil para el servicio)
         Task<bool> ExistsAsync(Guid id);

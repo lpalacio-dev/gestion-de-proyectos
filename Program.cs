@@ -1,11 +1,12 @@
 using gestion_de_proyectos;
-using gestion_de_proyectos.Profiles;
+using gestion_de_proyectos.Mappers;
+using gestion_de_proyectos.Models;
 using gestion_de_proyectos.Repositories;
 using gestion_de_proyectos.Services;
-using Microsoft.AspNetCore.Identity;
-using Microsoft.EntityFrameworkCore;
 // 1. NUEVOS USINGS NECESARIOS PARA JWT
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 
@@ -17,9 +18,8 @@ var connectionString = builder.Configuration.GetConnectionString("PostgreSQLConn
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(connectionString));
 
-
 // 2. Registrar los servicios de Identity
-builder.Services.AddIdentity<IdentityUser, IdentityRole>() // Usa IdentityUser por defecto y IdentityRole
+builder.Services.AddIdentity<ApplicationUser, IdentityRole>() // Usa IdentityUser por defecto y IdentityRole
     .AddEntityFrameworkStores<ApplicationDbContext>()
     .AddDefaultTokenProviders();
 
@@ -60,13 +60,13 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-builder.Services.AddAutoMapper(typeof(TaskProfile).Assembly);
+builder.Services.AddAutoMapper(typeof(MappingProfile).Assembly);
 
-builder.Services.AddScoped<IUserRepository, UserRepository>();
+
 builder.Services.AddScoped<IProjectRepository, ProjectRepository>();
 builder.Services.AddScoped<ITaskRepository, TaskRepository>();
 
-builder.Services.AddScoped<IUserService, UserService>();
+builder.Services.AddScoped<IUserContextAccessor, UserContextAccessor>();
 builder.Services.AddScoped<IProjectService, ProjectService>();
 builder.Services.AddScoped<ITaskService, TaskService>();
 
@@ -88,5 +88,51 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
+// Obtener servicios para el seeding
+var scope = app.Services.CreateScope();
+var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
+
+string[] roles = { "Admin", "ProjectManager", "Member" };
+
+foreach (var role in roles)
+{
+    if (!await roleManager.RoleExistsAsync(role))
+    {
+        await roleManager.CreateAsync(new IdentityRole(role));
+    }
+}
+
+var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+
+// Definición de las credenciales del usuario Admin
+const string adminEmail = "admin@gmail.com";
+const string adminUsername = "SuperAdmin";
+const string adminPassword = "Contraseña123!"; // ¡Cámbiala en producción!
+const string adminRole = "Admin";
+
+// 1. Verificar si el usuario Admin ya existe
+if (await userManager.FindByNameAsync(adminUsername) == null)
+{
+    // 2. Crear la instancia del ApplicationUser
+    var adminUser = new ApplicationUser
+    {
+        UserName = adminUsername,
+        Email = adminEmail,
+        EmailConfirmed = true,
+        SecurityStamp = Guid.NewGuid().ToString(),
+        RegistrationDate = DateTime.UtcNow
+    };
+
+    // 3. Crear el usuario en la base de datos
+    var result = await userManager.CreateAsync(adminUser, adminPassword);
+
+    if (result.Succeeded)
+    {
+        // 4. Asignar el rol "Admin"
+        // (Asegúrate de que el rol "Admin" haya sido creado previamente por RoleManager)
+        await userManager.AddToRoleAsync(adminUser, adminRole);
+    }
+}
 
 app.Run();

@@ -1,149 +1,129 @@
-﻿using AutoMapper;
+﻿// Services/TaskService.cs
 using gestion_de_proyectos.DTOs;
+using EntityTask = gestion_de_proyectos.Models.Task; // Alias para evitar ambigüedad
 using gestion_de_proyectos.Repositories;
-using TaskModelo = gestion_de_proyectos.Models.Task; // Alias para evitar ambigüedad
+using AutoMapper;
+using Microsoft.EntityFrameworkCore;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace gestion_de_proyectos.Services
 {
     public class TaskService : ITaskService
     {
         private readonly ITaskRepository _taskRepository;
-        private readonly IProjectRepository _projectRepository; // Necesario para validar ProjectId
-        private readonly IUserRepository _userRepository;       // Necesario para validar AssignedToId
+        private readonly IProjectService _projectService; // Para verificar el contexto del proyecto
+        private readonly IUserContextAccessor _userContextAccessor;
         private readonly IMapper _mapper;
 
         public TaskService(
             ITaskRepository taskRepository,
-            IProjectRepository projectRepository,
-            IUserRepository userRepository,
+            IProjectService projectService,
+            IUserContextAccessor userContextAccessor,
             IMapper mapper)
         {
             _taskRepository = taskRepository;
-            _projectRepository = projectRepository;
-            _userRepository = userRepository;
+            _projectService = projectService;
+            _userContextAccessor = userContextAccessor;
             _mapper = mapper;
         }
 
-        // --- Helper de Mapeo para evitar duplicación de código ---
-        private TaskResponseDto MapToResponseDto(TaskModelo task)
+        // Método auxiliar para verificación de autorización del contexto
+        private async Task CheckProjectAccess(Guid projectId)
         {
-            var dto = _mapper.Map<TaskResponseDto>(task);
-
-            // Llenar detalles de las relaciones cargadas por el Repository
-            dto.ProjectTitle = task.Project.Name;
-
-            // AssignedUser es nullable, se debe verificar
-            dto.AssignedToUsername = task.AssignedUser?.Name;
-
-            return dto;
-        }
-
-        // --- Métodos de Lectura ---
-
-        public async Task<IEnumerable<TaskResponseDto>> GetAllTasksAsync()
-        {
-            var tasks = await _taskRepository.GetAllAsync();
-            return tasks.Select(MapToResponseDto);
-        }
-
-        public async Task<TaskResponseDto?> GetTaskByIdAsync(Guid id)
-        {
-            var task = await _taskRepository.GetByIdAsync(id);
-            if (task == null) return null;
-
-            return MapToResponseDto(task);
-        }
-
-        // --- Método de Creación (Lógica CRÍTICA de Validación) ---
-
-        public async Task<TaskResponseDto> CreateTaskAsync(TaskCreationDto dto)
-        {
-            // 1. Validar ProjectId (Requerido)
-            if (!await _projectRepository.ExistsAsync(dto.ProjectId))
+            // Reutiliza la lógica de ProjectService para asegurar que el usuario es miembro/dueño/admin
+            try
             {
-                // Deberías lanzar una excepción personalizada (ej. ResourceNotFoundException)
-                // que el controlador atrapará para devolver un 404 o 400.
-                throw new InvalidOperationException($"Project with ID {dto.ProjectId} not found.");
+                await _projectService.GetProjectByIdAsync(projectId);
+            }
+            catch (NotFoundException)
+            {
+                throw new NotFoundException($"Project with Id {projectId} not found.");
+            }
+            // Si GetProjectByIdAsync falla la autorización, lanzará UnauthorizedAccessException.
+        }
+
+        // --- Implementación de ITaskService ---
+
+        public async Task<IEnumerable<TaskDto>> GetAllTasksAsync(Guid projectId)
+        {
+            // Autorización de Contexto: Asegurar que el usuario pueda ver el proyecto padre
+            await CheckProjectAccess(projectId);
+
+            var queryable = await _taskRepository.GetAllAsync();
+
+            // Filtra por el proyecto solicitado
+            var tasks = await queryable
+                .Where(t => t.ProjectId == projectId)
+                .Include(t => t.AssignedUser)
+                .ToListAsync();
+
+            return _mapper.Map<IEnumerable<TaskDto>>(tasks);
+        }
+
+        public async Task<TaskDto> GetTaskByIdAsync(Guid taskId)
+        {
+            var task = await _taskRepository.GetByIdAsync(taskId);
+            if (task == null)
+            {
+                throw new NotFoundException($"Task with Id {taskId} not found.");
             }
 
-            // 2. Validar AssignedToId (Opcional: solo si se proporciona)
-            if (dto.AssignedToId.HasValue && !await _userRepository.ExistsAsync(dto.AssignedToId.Value))
-            {
-                throw new InvalidOperationException($"User with ID {dto.AssignedToId.Value} not found.");
-            }
+            // Autorización de Contexto: Asegurar que el usuario pueda ver el proyecto padre
+            await CheckProjectAccess(task.ProjectId);
 
-            // 3. Mapeo y Guardado
-            var task = _mapper.Map<TaskModelo>(dto);
+            return _mapper.Map<TaskDto>(task);
+        }
+
+        public async Task<TaskDto> CreateTaskAsync(Guid projectId, CreateTaskDto dto)
+        {
+            // Autorización de Contexto: Solo miembros/dueños pueden crear tareas
+            await CheckProjectAccess(projectId);
+
+            var task = _mapper.Map<EntityTask>(dto);
+            task.ProjectId = projectId;
+
+            // Lógica de Asignación: Asignar al AssignedToId proporcionado o dejar null
+            // (La verificación de si AssignedToId existe se hace en la capa superior o se omite)
 
             await _taskRepository.AddAsync(task);
+            await _taskRepository.SaveChangesAsync();
 
-            // 4. Recargar y mapear: Se recarga para asegurar que las propiedades de navegación 
-            //    (Project y AssignedUser) estén pobladas para el DTO de respuesta.
-            var createdTask = await _taskRepository.GetByIdAsync(task.Id);
-
-            // Si por alguna razón la recarga falla, devolvemos un error.
-            if (createdTask == null) throw new Exception("Error al recuperar la tarea después de la creación.");
-
-            return MapToResponseDto(createdTask);
+            return _mapper.Map<TaskDto>(task);
         }
 
-        // --- Método de Actualización (Lógica de Negocio) ---
-
-        public async Task<TaskResponseDto?> UpdateTaskAsync(Guid id, TaskUpdateDto dto)
+        public async Task UpdateTaskAsync(Guid taskId, UpdateTaskDto dto)
         {
-            var taskToUpdate = await _taskRepository.GetByIdAsync(id);
-            if(taskToUpdate == null) return null;
-
-            // 1. VALIDACIÓN Y ASIGNACIÓN MANUAL DE PROJECTID (FK CRÍTICA)
-            if (dto.ProjectId.HasValue)
+            var task = await _taskRepository.GetByIdAsync(taskId);
+            if (task == null)
             {
-                if (!await _projectRepository.ExistsAsync(dto.ProjectId.Value))
-                {
-                    throw new InvalidOperationException($"Project with ID {dto.ProjectId.Value} not found.");
-                }
-                // ASIGNACIÓN MANUAL GARANTIZADA
-                taskToUpdate.ProjectId = dto.ProjectId.Value;
+                throw new NotFoundException($"Task with Id {taskId} not found.");
             }
-            // NOTA: Si dto.ProjectId NO tiene valor, la propiedad ProjectId de taskToUpdate 
-            // MANTIENE su valor original. ¡SOLUCIONADO!
 
-            // 2. VALIDACIÓN Y ASIGNACIÓN MANUAL DE ASSIGNEDTOID
-            if (dto.AssignedToId.HasValue)
-            {
-                if (!await _userRepository.ExistsAsync(dto.AssignedToId.Value))
-                {
-                    throw new InvalidOperationException($"User with ID {dto.AssignedToId.Value} not found.");
-                }
-                taskToUpdate.AssignedToId = dto.AssignedToId.Value;
-            }
-            else if (dto.AssignedToId == null) // Manejo explícito de desasignación (si se envía {"assignedToId": null})
-            {
-                taskToUpdate.AssignedToId = null;
-            }
-            // NOTA: Si dto.AssignedToId NO se envía, la propiedad se mantiene.
+            // Autorización de Contexto: Solo miembros/dueños pueden actualizar tareas
+            await CheckProjectAccess(task.ProjectId);
 
-            // 3. Mapear DTO a Entidad (AutoMapper solo mapea las propiedades no nulas de DTO a la entidad)
-            _mapper.Map(dto, taskToUpdate);
+            // Mapear los campos actualizables
+            _mapper.Map(dto, task);
 
-            await _taskRepository.UpdateAsync(taskToUpdate);
-
-            // Recargar la tarea para obtener las relaciones actualizadas
-            var updatedTask = await _taskRepository.GetByIdAsync(id);
-
-            if (updatedTask == null) throw new Exception("Error al recuperar la tarea después de la actualización.");
-
-            return MapToResponseDto(updatedTask);
+            _taskRepository.Update(task);
+            await _taskRepository.SaveChangesAsync();
         }
 
-        // --- Método de Eliminación ---
-
-        public async Task<bool> DeleteTaskAsync(Guid id)
+        public async Task DeleteTaskAsync(Guid taskId)
         {
-            var exists = await _taskRepository.ExistsAsync(id);
-            if (!exists) return false;
+            var task = await _taskRepository.GetByIdAsync(taskId);
+            if (task == null)
+            {
+                return; // Idempotencia: no hacer nada si ya no existe
+            }
 
-            await _taskRepository.DeleteAsync(id);
-            return true;
+            // Autorización de Contexto: Solo miembros/dueños/admin pueden eliminar tareas
+            await CheckProjectAccess(task.ProjectId);
+
+            _taskRepository.Delete(task);
+            await _taskRepository.SaveChangesAsync();
         }
     }
 }

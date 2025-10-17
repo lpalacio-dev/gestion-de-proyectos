@@ -1,6 +1,6 @@
 ﻿
 using Microsoft.EntityFrameworkCore;
-using TaskModelo = gestion_de_proyectos.Models.Task;
+using EntityTask = gestion_de_proyectos.Models.Task;
 
 namespace gestion_de_proyectos.Repositories
 {
@@ -13,55 +13,49 @@ namespace gestion_de_proyectos.Repositories
             _context = context;
         }
 
-        private IQueryable<TaskModelo> GetTasksWithIncludes()
+        // Obtiene una tarea por ID, incluyendo las relaciones necesarias
+        public async Task<EntityTask?> GetByIdAsync(Guid id)
         {
-            // Cláusula CRÍTICA: Carga eager de las entidades relacionadas
-            return _context.Tasks
-                .Include(t => t.Project)       // Carga el proyecto al que pertenece
-                .Include(t => t.AssignedUser); // Carga el usuario asignado
+            return await _context.Tasks
+                .Include(t => t.AssignedUser)
+                .FirstOrDefaultAsync(t => t.Id == id);
         }
 
-        public async Task<IEnumerable<TaskModelo>> GetAllAsync()
+        // Devuelve una IQueryable para que el Service pueda filtrar por ProjectId
+        public Task<IQueryable<EntityTask>> GetAllAsync()
         {
-            // Usamos la función auxiliar para asegurar las inclusiones
-            return await GetTasksWithIncludes().ToListAsync();
+            return Task.FromResult(_context.Tasks.AsQueryable());
         }
 
-        public async Task<TaskModelo?> GetByIdAsync(Guid id)
-        {
-            // Usamos la función auxiliar para asegurar las inclusiones
-            return await GetTasksWithIncludes()
-                         .FirstOrDefaultAsync(t => t.Id == id);
-        }
-
-        public async Task AddAsync(TaskModelo task)
+        // Agrega una tarea
+        public async Task AddAsync(EntityTask task)
         {
             await _context.Tasks.AddAsync(task);
-            await _context.SaveChangesAsync();
         }
 
-        public async Task UpdateAsync(TaskModelo task)
+        // Marca el objeto como modificado
+        public void Update(EntityTask task)
         {
-            // En EF Core, adjuntar y marcar como modificado es común para updates completos
-            _context.Tasks.Update(task);
-            await _context.SaveChangesAsync();
+            // Se asume que el objeto ya está siendo rastreado o se usa el Attach/Modified
         }
 
-        public async Task DeleteAsync(Guid id)
+        // Elimina una tarea
+        public void Delete(EntityTask task)
         {
-            var task = await _context.Tasks.FindAsync(id);
-            if (task != null)
-            {
-                _context.Tasks.Remove(task);
-                await _context.SaveChangesAsync();
-            }
+            _context.Tasks.Remove(task);
         }
 
+        // Guarda los cambios pendientes en la base de datos
+        public async Task<bool> SaveChangesAsync()
+        {
+            return await _context.SaveChangesAsync() > 0;
+        }
+
+        // Verifica la existencia de una tarea
         public async Task<bool> ExistsAsync(Guid id)
         {
             return await _context.Tasks.AnyAsync(t => t.Id == id);
         }
-
-
     }
+
 }
