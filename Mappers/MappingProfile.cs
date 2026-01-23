@@ -68,6 +68,14 @@ namespace gestion_de_proyectos.Mappers
                 // Ignora Id y ProjectId (no se deben cambiar en una actualización de tarea)
                 .ForMember(dest => dest.Id, opt => opt.Ignore())
                 .ForMember(dest => dest.ProjectId, opt => opt.Ignore());
+
+            // --- Mapeo de PROJECT MEMBERS ---
+
+            // ProjectMember -> ProjectMemberDto
+            CreateMap<ProjectMember, ProjectMemberDto>()
+                .ForMember(dest => dest.ProjectName, opt => opt.MapFrom(src => src.Project.Name))
+                .ForMember(dest => dest.UserName, opt => opt.MapFrom(src => src.User.UserName))
+                .ForMember(dest => dest.Email, opt => opt.MapFrom(src => src.User.Email));
         }
     }
 }

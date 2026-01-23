@@ -1,61 +1,45 @@
-﻿// Services/ProjectService.cs
+﻿// Services/ProjectService.cs - FASE 4: Autorización Mejorada
 using gestion_de_proyectos.DTOs;
 using gestion_de_proyectos.Models;
 using gestion_de_proyectos.Repositories;
-using AutoMapper; // Asumimos AutoMapper para mapeo DTO <-> Modelo
-using Microsoft.EntityFrameworkCore; // Necesario para consultas IQueryable
+using AutoMapper;
+using Microsoft.EntityFrameworkCore;
 using System.Collections.Generic;
 using System.Linq;
 using Task = System.Threading.Tasks.Task;
 
 namespace gestion_de_proyectos.Services
 {
-    // Excepciones personalizadas para manejar respuestas HTTP
-    public class NotFoundException : Exception { public NotFoundException(string message) : base(message) { } }
-
-
     public class ProjectService : IProjectService
     {
         private readonly IProjectRepository _projectRepository;
         private readonly IUserContextAccessor _userContextAccessor;
+        private readonly IProjectAuthorizationService _authorizationService;
         private readonly IMapper _mapper;
-
-        // El plan menciona ApplicationDbContext para ProjectMember, lo inyectamos directamente:
         private readonly ApplicationDbContext _dbContext;
 
         public ProjectService(
             IProjectRepository projectRepository,
             IUserContextAccessor userContextAccessor,
+            IProjectAuthorizationService authorizationService,
             IMapper mapper,
             ApplicationDbContext dbContext)
         {
             _projectRepository = projectRepository;
             _userContextAccessor = userContextAccessor;
+            _authorizationService = authorizationService;
             _mapper = mapper;
             _dbContext = dbContext;
         }
 
-        // --- Lógica de Autorización ---
-        private async Task<bool> IsUserOwnerOrAdmin(string userId, Guid projectId)
-        {
-            if (_userContextAccessor.IsUserInRole("Admin")) return true;
-
-            var project = await _projectRepository.GetByIdAsync(projectId);
-            return project?.OwnerId == userId;
-        }
-
-        private async Task<bool> IsUserProjectMember(string userId, Guid projectId)
-        {
-            // Se usa el DbSet directamente como sugirió el plan (si no hay ProjectMemberRepository)
-            return await _dbContext.ProjectMembers.AnyAsync(pm => pm.ProjectId == projectId && pm.UserId == userId);
-        }
-
-        // --- Implementación de IProjectService ---
+        // ============================================================================
+        // IMPLEMENTACIÓN DE MÉTODOS
+        // ============================================================================
 
         public async Task<IEnumerable<ProjectDto>> GetAllProjectsAsync()
         {
             var currentUserId = _userContextAccessor.GetCurrentUserId();
-            var isAdmin = _userContextAccessor.IsUserInRole("Admin");
+            var isAdmin = _authorizationService.IsGlobalAdmin(currentUserId);
 
             var queryable = await _projectRepository.GetAllAsync();
 
@@ -68,8 +52,8 @@ namespace gestion_de_proyectos.Services
             }
 
             var projects = await queryable
-                .Include(p => p.ProjectMembers) // Aseguramos que se carguen los miembros para el DTO
-                .Include(p => p.Owner) // Aseguramos el Owner para el DTO
+                .Include(p => p.ProjectMembers)
+                .Include(p => p.Owner)
                 .ToListAsync();
 
             return _mapper.Map<IEnumerable<ProjectDto>>(projects);
@@ -77,21 +61,14 @@ namespace gestion_de_proyectos.Services
 
         public async Task<ProjectDto> GetProjectByIdAsync(Guid id)
         {
-            var project = await _projectRepository.GetByIdAsync(id);
-            if (project == null)
-            {
-                throw new NotFoundException($"Project with Id {id} not found.");
-            }
-
             var currentUserId = _userContextAccessor.GetCurrentUserId();
 
-            // Autorización: Admin, Owner o ProjectMember
-            if (!await IsUserOwnerOrAdmin(currentUserId, id) &&
-                !await IsUserProjectMember(currentUserId, id))
-            {
-                throw new UnauthorizedAccessException("Access denied. User is not the owner, admin, or a member of this project.");
-            }
+            // FASE 4: Usar servicio de autorización centralizado
+            await _authorizationService.ValidateProjectAccessAsync(currentUserId, id);
 
+            var project = await _projectRepository.GetByIdAsync(id);
+
+            // Si llegamos aquí, el proyecto existe y el usuario tiene acceso
             return _mapper.Map<ProjectDto>(project);
         }
 
@@ -100,32 +77,40 @@ namespace gestion_de_proyectos.Services
             var project = _mapper.Map<Project>(dto);
 
             // Lógica de Negocio: Asignar OwnerId y CreationDate
-            project.OwnerId = _userContextAccessor.GetCurrentUserId();
+            var currentUserId = _userContextAccessor.GetCurrentUserId();
+            project.OwnerId = currentUserId;
             project.CreationDate = DateTime.UtcNow;
 
             await _projectRepository.AddAsync(project);
             await _projectRepository.SaveChangesAsync();
 
-            return _mapper.Map<ProjectDto>(project);
+            // Auto-agregar al Owner como miembro del proyecto con rol "Owner"
+            var ownerMembership = new ProjectMember
+            {
+                ProjectId = project.Id,
+                UserId = currentUserId,
+                Role = "Owner",
+                JoinedDate = DateTime.UtcNow
+            };
+
+            _dbContext.ProjectMembers.Add(ownerMembership);
+            await _dbContext.SaveChangesAsync();
+
+            // Recargar el proyecto con todas las relaciones para el DTO
+            var createdProject = await _projectRepository.GetByIdAsync(project.Id);
+            return _mapper.Map<ProjectDto>(createdProject);
         }
 
         public async Task UpdateProjectAsync(Guid id, UpdateProjectDto dto)
         {
-            var project = await _projectRepository.GetByIdAsync(id);
-            if (project == null)
-            {
-                throw new NotFoundException($"Project with Id {id} not found.");
-            }
-
             var currentUserId = _userContextAccessor.GetCurrentUserId();
 
-            // Autorización: Solo el Owner o un Admin puede actualizar los detalles del proyecto
-            if (!await IsUserOwnerOrAdmin(currentUserId, id))
-            {
-                throw new UnauthorizedAccessException("Access denied. Only the project owner or an admin can update project details.");
-            }
+            // FASE 4: Validar permiso para modificar
+            await _authorizationService.ValidateCanModifyProjectAsync(currentUserId, id);
 
-            // Mapear los campos actualizables del DTO al modelo
+            var project = await _projectRepository.GetByIdAsync(id);
+
+            // Si llegamos aquí, el usuario tiene permiso
             _mapper.Map(dto, project);
 
             await _projectRepository.UpdateAsync(project);
@@ -134,20 +119,19 @@ namespace gestion_de_proyectos.Services
 
         public async Task DeleteProjectAsync(Guid id)
         {
+            var currentUserId = _userContextAccessor.GetCurrentUserId();
+
+            // Verificar que el proyecto existe
             var project = await _projectRepository.GetByIdAsync(id);
             if (project == null)
             {
-                // Si no se encuentra, retornamos sin error si el endpoint es DELETE (idempotencia)
+                // Idempotencia: no hacer nada si no existe
                 return;
             }
 
-            var currentUserId = _userContextAccessor.GetCurrentUserId();
-
-            // Autorización: Solo el Owner o un Admin puede eliminar el proyecto
-            if (!await IsUserOwnerOrAdmin(currentUserId, id))
-            {
-                throw new UnauthorizedAccessException("Access denied. Only the project owner or an admin can delete this project.");
-            }
+            // FASE 4: Validar permiso para eliminar
+            // ValidateCanModifyProjectAsync verifica Owner o Admin global
+            await _authorizationService.ValidateCanModifyProjectAsync(currentUserId, id);
 
             await _projectRepository.DeleteAsync(id);
             await _projectRepository.SaveChangesAsync();

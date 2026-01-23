@@ -10,6 +10,8 @@ using System.Threading.Tasks;
 
 namespace gestion_de_proyectos.Services
 {
+    // Excepciones personalizadas para manejar respuestas HTTP
+    public class NotFoundException : Exception { public NotFoundException(string message) : base(message) { } }
     public class TaskService : ITaskService
     {
         private readonly ITaskRepository _taskRepository;

@@ -20,5 +20,8 @@
 
         // (Opcional) Propiedad para el rol del miembro en el proyecto
         public string Role { get; set; } = "Member"; // Ejemplo: "ProjectManager", "Member"
+
+        // FASE 2: Fecha en que el usuario se unió al proyecto
+        public DateTime JoinedDate { get; set; } = DateTime.UtcNow;
     }
 }

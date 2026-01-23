@@ -1,9 +1,8 @@
-using gestion_de_proyectos;
+ï»¿using gestion_de_proyectos;
 using gestion_de_proyectos.Mappers;
 using gestion_de_proyectos.Models;
 using gestion_de_proyectos.Repositories;
 using gestion_de_proyectos.Services;
-// 1. NUEVOS USINGS NECESARIOS PARA JWT
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -14,18 +13,15 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 var connectionString = builder.Configuration.GetConnectionString("PostgreSQLConnection");
-// Registra el DbContext usando el proveedor de PostgreSQL
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(connectionString));
 
-// 2. Registrar los servicios de Identity
-builder.Services.AddIdentity<ApplicationUser, IdentityRole>() // Usa IdentityUser por defecto y IdentityRole
+// Registrar los servicios de Identity
+builder.Services.AddIdentity<ApplicationUser, IdentityRole>()
     .AddEntityFrameworkStores<ApplicationDbContext>()
     .AddDefaultTokenProviders();
 
-// 3. PASO 3: CONFIGURAR LA AUTENTICACIÓN JWT BEARER
-// Obtenemos los valores de configuración JWT. 
-// Usamos ?? throw para asegurar que el Key exista, es crítico para la seguridad.
+// CONFIGURAR LA AUTENTICACIÃ“N JWT BEARER
 var jwtKey = builder.Configuration["Jwt:Key"] ?? throw new InvalidOperationException("Jwt:Key no configurada en appsettings.json");
 var jwtIssuer = builder.Configuration["Jwt:Issuer"];
 var jwtAudience = builder.Configuration["Jwt:Audience"];
@@ -39,36 +35,31 @@ builder.Services.AddAuthentication(options =>
 {
     options.TokenValidationParameters = new TokenValidationParameters
     {
-        // Validaciones críticas
         ValidateIssuer = true,
         ValidateAudience = true,
         ValidateLifetime = true,
         ValidateIssuerSigningKey = true,
-
-        // Asignación de valores desde la configuración
         ValidIssuer = jwtIssuer,
         ValidAudience = jwtAudience,
-
-        // Se utiliza la clave secreta para verificar la firma del token
         IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
     };
 });
-// FIN DE CONFIGURACIÓN JWT
 
 builder.Services.AddControllers();
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 builder.Services.AddAutoMapper(typeof(MappingProfile).Assembly);
 
-
 builder.Services.AddScoped<IProjectRepository, ProjectRepository>();
 builder.Services.AddScoped<ITaskRepository, TaskRepository>();
 
 builder.Services.AddScoped<IUserContextAccessor, UserContextAccessor>();
+builder.Services.AddScoped<IProjectAuthorizationService, ProjectAuthorizationService>();
 builder.Services.AddScoped<IProjectService, ProjectService>();
 builder.Services.AddScoped<ITaskService, TaskService>();
+builder.Services.AddScoped<IProjectMemberService, ProjectMemberService>();
+builder.Services.AddScoped<IUserService, UserService>();
 
 var app = builder.Build();
 
@@ -80,58 +71,94 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
-
-// 4. PASO 3: AGREGAR MIDDLEWARE DE AUTENTICACIÓN
-// **DEBE** ir antes de UseAuthorization() para que el usuario pueda ser identificado antes de ser autorizado.
 app.UseAuthentication();
-
 app.UseAuthorization();
 
 app.MapControllers();
 
-// Obtener servicios para el seeding
-var scope = app.Services.CreateScope();
-var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
+// ============================================================================
+// FASE 1: SEEDING DE ROLES GLOBALES AJUSTADOS
+// ============================================================================
 
-string[] roles = { "Admin", "ProjectManager", "Member" };
-
-foreach (var role in roles)
+using (var scope = app.Services.CreateScope())
 {
-    if (!await roleManager.RoleExistsAsync(role))
+    var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
+    var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+
+    // Definir roles segÃºn el plan
+    // - Admin: Acceso total al sistema
+    // - User: Rol base para todos los usuarios autenticados
+    string[] roles = { "Admin", "User" };
+
+    // Crear roles si no existen
+    foreach (var role in roles)
     {
-        await roleManager.CreateAsync(new IdentityRole(role));
+        if (!await roleManager.RoleExistsAsync(role))
+        {
+            await roleManager.CreateAsync(new IdentityRole(role));
+            Console.WriteLine($"âœ“ Rol '{role}' creado exitosamente.");
+        }
+        else
+        {
+            Console.WriteLine($"â†’ Rol '{role}' ya existe.");
+        }
     }
-}
 
-var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+    // ============================================================================
+    // CREAR USUARIO ADMINISTRADOR POR DEFECTO
+    // ============================================================================
+    const string adminEmail = "admin@gestion.com";
+    const string adminUsername = "admin";
+    const string adminPassword = "Admin123!"; // Â¡Cambiar en producciÃ³n!
 
-// Definición de las credenciales del usuario Admin
-const string adminEmail = "admin@gmail.com";
-const string adminUsername = "SuperAdmin";
-const string adminPassword = "Contraseña123!"; // ¡Cámbiala en producción!
-const string adminRole = "Admin";
+    var adminUser = await userManager.FindByNameAsync(adminUsername);
 
-// 1. Verificar si el usuario Admin ya existe
-if (await userManager.FindByNameAsync(adminUsername) == null)
-{
-    // 2. Crear la instancia del ApplicationUser
-    var adminUser = new ApplicationUser
+    if (adminUser == null)
     {
-        UserName = adminUsername,
-        Email = adminEmail,
-        EmailConfirmed = true,
-        SecurityStamp = Guid.NewGuid().ToString(),
-        RegistrationDate = DateTime.UtcNow
-    };
+        adminUser = new ApplicationUser
+        {
+            UserName = adminUsername,
+            Email = adminEmail,
+            EmailConfirmed = true,
+            SecurityStamp = Guid.NewGuid().ToString(),
+            RegistrationDate = DateTime.UtcNow
+        };
 
-    // 3. Crear el usuario en la base de datos
-    var result = await userManager.CreateAsync(adminUser, adminPassword);
+        var result = await userManager.CreateAsync(adminUser, adminPassword);
 
-    if (result.Succeeded)
+        if (result.Succeeded)
+        {
+            // Asignar rol Admin
+            await userManager.AddToRoleAsync(adminUser, "Admin");
+            // TambiÃ©n asignar rol User (todos los usuarios deben tenerlo)
+            await userManager.AddToRoleAsync(adminUser, "User");
+        }
+        else
+        {
+            foreach (var error in result.Errors)
+            {
+                Console.WriteLine($"  - {error.Description}");
+            }
+        }
+    }
+    else
     {
-        // 4. Asignar el rol "Admin"
-        // (Asegúrate de que el rol "Admin" haya sido creado previamente por RoleManager)
-        await userManager.AddToRoleAsync(adminUser, adminRole);
+        Console.WriteLine($"â†’ Usuario administrador '{adminUsername}' ya existe.");
+
+        // Verificar que tenga los roles correctos
+        var userRoles = await userManager.GetRolesAsync(adminUser);
+
+        if (!userRoles.Contains("Admin"))
+        {
+            await userManager.AddToRoleAsync(adminUser, "Admin");
+            Console.WriteLine($"  âœ“ Rol 'Admin' agregado al usuario.");
+        }
+
+        if (!userRoles.Contains("User"))
+        {
+            await userManager.AddToRoleAsync(adminUser, "User");
+            Console.WriteLine($"  âœ“ Rol 'User' agregado al usuario.");
+        }
     }
 }
 

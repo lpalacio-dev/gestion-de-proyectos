@@ -9,7 +9,7 @@ using System.Threading.Tasks;
 namespace gestion_de_proyectos.Controllers
 {
     // Seguridad de Roles: Autoriza a usuarios con roles de Admin, ProjectManager o Member
-    [Authorize(Roles = "Admin, ProjectManager, Member")]
+    [Authorize(Roles = "User")]
     [Route("api/projects/{projectId:guid}/tasks")]
     [ApiController]
     public class TaskController : ControllerBase
