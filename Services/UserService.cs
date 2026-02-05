@@ -11,15 +11,18 @@ namespace gestion_de_proyectos.Services
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly IUserContextAccessor _userContextAccessor;
         private readonly ApplicationDbContext _dbContext;
+        private readonly IS3Service _s3Service; // NUEVO
 
         public UserService(
             UserManager<ApplicationUser> userManager,
             IUserContextAccessor userContextAccessor,
-            ApplicationDbContext dbContext)
+            ApplicationDbContext dbContext,
+            IS3Service s3Service)
         {
             _userManager = userManager;
             _userContextAccessor = userContextAccessor;
             _dbContext = dbContext;
+            _s3Service = s3Service;
         }
 
         // ============================================================================
@@ -125,6 +128,14 @@ namespace gestion_de_proyectos.Services
             var assignedTasksCount = await _dbContext.Tasks
                 .CountAsync(t => t.AssignedToId == currentUserId);
 
+            // NUEVO: Generar URL firmada si tiene imagen
+            string? profileImageUrl = null;
+            if (!string.IsNullOrEmpty(user.ProfileImageKey))
+            {
+                // Asumiendo que tienes IS3Service inyectado
+                profileImageUrl = await _s3Service.GetPresignedUrlAsync(user.ProfileImageKey);
+            }
+
             return new UserProfileDto
             {
                 Id = user.Id,
@@ -135,6 +146,7 @@ namespace gestion_de_proyectos.Services
                 PhoneNumberConfirmed = user.PhoneNumberConfirmed,
                 RegistrationDate = user.RegistrationDate,
                 Roles = roles,
+                ProfileImageUrl = profileImageUrl, // NUEVO
                 OwnedProjectsCount = ownedProjectsCount,
                 MemberProjectsCount = memberProjectsCount,
                 AssignedTasksCount = assignedTasksCount
@@ -322,6 +334,63 @@ namespace gestion_de_proyectos.Services
             if (!result.Succeeded)
             {
                 throw new InvalidOperationException($"Error al eliminar usuario: {string.Join(", ", result.Errors.Select(e => e.Description))}");
+            }
+        }
+
+
+        public async Task UpdateProfileImageAsync(string imageKey)
+        {
+            var currentUserId = _userContextAccessor.GetCurrentUserId();
+            var user = await _userManager.FindByIdAsync(currentUserId);
+
+            if (user == null)
+            {
+                throw new NotFoundException("Usuario actual no encontrado.");
+            }
+
+            // Si ya tenía una imagen, eliminarla de S3
+            if (!string.IsNullOrEmpty(user.ProfileImageKey))
+            {
+                await _s3Service.DeleteFileAsync(user.ProfileImageKey);
+            }
+
+            // Actualizar la clave de la nueva imagen
+            user.ProfileImageKey = imageKey;
+
+            var result = await _userManager.UpdateAsync(user);
+
+            if (!result.Succeeded)
+            {
+                throw new InvalidOperationException("Error al actualizar imagen de perfil.");
+            }
+        }
+
+        public async Task DeleteProfileImageAsync()
+        {
+            var currentUserId = _userContextAccessor.GetCurrentUserId();
+            var user = await _userManager.FindByIdAsync(currentUserId);
+
+            if (user == null)
+            {
+                throw new NotFoundException("Usuario actual no encontrado.");
+            }
+
+            if (string.IsNullOrEmpty(user.ProfileImageKey))
+            {
+                throw new NotFoundException("El usuario no tiene imagen de perfil.");
+            }
+
+            // Eliminar de S3
+            await _s3Service.DeleteFileAsync(user.ProfileImageKey);
+
+            // Limpiar la clave en la BD
+            user.ProfileImageKey = null;
+
+            var result = await _userManager.UpdateAsync(user);
+
+            if (!result.Succeeded)
+            {
+                throw new InvalidOperationException("Error al eliminar imagen de perfil.");
             }
         }
     }

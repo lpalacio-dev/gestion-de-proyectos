@@ -87,5 +87,7 @@ namespace gestion_de_proyectos.Services
         /// </summary>
         /// <param name="userId">ID del usuario a eliminar</param>
         Task DeleteUserAsync(string userId);
+        Task UpdateProfileImageAsync(string imageKey);
+        Task DeleteProfileImageAsync();
     }
 }

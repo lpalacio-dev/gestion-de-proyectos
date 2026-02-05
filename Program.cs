@@ -15,6 +15,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 // 1. CARGAR VARIABLES DE ENTORNO DESDE .ENV
 Env.Load();
+builder.Configuration.AddEnvironmentVariables();
 
 // Add services to the container.
 var connectionString = builder.Configuration.GetConnectionString("PostgreSQLConnection");
@@ -67,6 +68,7 @@ builder.Services.AddScoped<IProjectService, ProjectService>();
 builder.Services.AddScoped<ITaskService, TaskService>();
 builder.Services.AddScoped<IProjectMemberService, ProjectMemberService>();
 builder.Services.AddScoped<IUserService, UserService>();
+builder.Services.AddScoped<IS3Service, S3Service>();
 
 builder.Services.AddCors(options =>
 {
@@ -83,6 +85,7 @@ var app = builder.Build();
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
+    app.UseDeveloperExceptionPage(); // Esto ayuda a ver más detalles
     app.UseSwagger();
     app.UseSwaggerUI();
 }

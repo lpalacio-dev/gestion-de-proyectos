@@ -8,6 +8,9 @@ namespace gestion_de_proyectos.Models
     {
         public DateTime RegistrationDate { get; set; } = DateTime.UtcNow;
 
+        // NUEVO: Clave del archivo de imagen en S3
+        public string? ProfileImageKey { get; set; }
+
         // Propiedades de Navegación (Deben referenciar a ApplicationUser en lugar del antiguo User)
         public ICollection<Project> OwnedProjects { get; set; } = new List<Project>();
 

@@ -11,6 +11,9 @@
         public DateTime RegistrationDate { get; set; }
         public IEnumerable<string> Roles { get; set; } = new List<string>();
 
+        // NUEVO: URL firmada para la imagen de perfil
+        public string? ProfileImageUrl { get; set; }
+
         // Estadísticas
         public int OwnedProjectsCount { get; set; }
         public int MemberProjectsCount { get; set; }

@@ -15,10 +15,12 @@ namespace gestion_de_proyectos.Controllers
     public class UserController : ControllerBase
     {
         private readonly IUserService _userService;
+        private readonly IS3Service _s3Service; // NUEVO
 
-        public UserController(IUserService userService)
+        public UserController(IUserService userService, IS3Service s3Service)
         {
             _userService = userService;
+            _s3Service = s3Service;
         }
 
         // ============================================================================
@@ -246,6 +248,80 @@ namespace gestion_de_proyectos.Controllers
             catch (InvalidOperationException ex)
             {
                 return BadRequest(new { Message = ex.Message });
+            }
+        }
+
+        [HttpPost("me/profile-image")]
+        [Consumes("multipart/form-data")] // Agrega esta línea
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public async Task<IActionResult> UploadProfileImage(IFormFile file)
+        {
+            try
+            {
+                // Validaciones
+                if (file == null || file.Length == 0)
+                {
+                    return BadRequest(new { Message = "No se proporcionó ningún archivo." });
+                }
+
+                // Validar tipo de archivo
+                var allowedTypes = new[] { "image/jpeg", "image/jpg", "image/png", "image/gif" };
+                if (!allowedTypes.Contains(file.ContentType.ToLower()))
+                {
+                    return BadRequest(new { Message = "Solo se permiten archivos de imagen (JPEG, PNG, GIF)." });
+                }
+
+                // Validar tamaño (máximo 5MB)
+                const long maxSize = 5 * 1024 * 1024; // 5MB
+                if (file.Length > maxSize)
+                {
+                    return BadRequest(new { Message = "La imagen no debe superar los 5MB." });
+                }
+
+                // Subir a S3
+                using var stream = file.OpenReadStream();
+                var fileKey = await _s3Service.UploadFileAsync(
+                    stream,
+                    file.FileName,
+                    "profile-images",
+                    file.ContentType
+                );
+
+                // Actualizar usuario
+                await _userService.UpdateProfileImageAsync(fileKey);
+
+                // Generar URL firmada para retornar
+                var imageUrl = await _s3Service.GetPresignedUrlAsync(fileKey);
+
+                return Ok(new
+                {
+                    Message = "Imagen de perfil actualizada exitosamente.",
+                    ImageUrl = imageUrl
+                });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { Message = $"Error al subir imagen: {ex.Message}" });
+            }
+        }
+
+        /// <summary>
+        /// Elimina la imagen de perfil del usuario actual
+        /// </summary>
+        [HttpDelete("me/profile-image")]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> DeleteProfileImage()
+        {
+            try
+            {
+                await _userService.DeleteProfileImageAsync();
+                return NoContent();
+            }
+            catch (NotFoundException ex)
+            {
+                return NotFound(new { Message = ex.Message });
             }
         }
     }
