@@ -53,6 +53,8 @@ builder.Services.AddAuthentication(options =>
     };
 });
 
+builder.Services.AddHealthChecks();
+
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -96,6 +98,7 @@ app.UseCors("WebAppProxy");
 app.UseAuthorization();
 
 app.MapControllers();
+app.MapHealthChecks("/healthz");
 
 // ============================================================================
 // FASE 1: SEEDING DE ROLES GLOBALES AJUSTADOS
