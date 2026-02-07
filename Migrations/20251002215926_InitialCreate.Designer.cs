@@ -11,7 +11,7 @@ using gestion_de_proyectos;
 
 namespace gestion_de_proyectos.Migrations
 {
-    [DbContext(typeof(ProjectManagementContext))]
+    [DbContext(typeof(ApplicationDbContext))]
     [Migration("20251002215926_InitialCreate")]
     partial class InitialCreate
     {

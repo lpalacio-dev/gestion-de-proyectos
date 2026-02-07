@@ -35,13 +35,16 @@ namespace gestion_de_proyectos.Models
         // Columna: id_propietario (FK, NOT NULL)
         [Required]
         [ForeignKey(nameof(Owner))]
-        public Guid OwnerId { get; set; }
+        public string OwnerId { get; set; } // ¡Cambiado de Guid a string!
 
-        // Navigation Property: Relación N:1 con User (El usuario propietario)
-        public User Owner { get; set; } = null!; // null! to satisfy C# nullable reference types, assuming EF will populate it
+        // Navigation Property: Relación N:1 con ApplicationUser (El usuario propietario)
+        public ApplicationUser Owner { get; set; } = null!; // ¡Cambiado de User a ApplicationUser!
 
         // Navigation Property: Relación 1:N con Task
         public ICollection<Task> Tasks { get; set; } = new List<Task>();
+
+        // Navigation Property: Colección de miembros del proyecto (relación N:M)
+        public ICollection<ProjectMember> ProjectMembers { get; set; } = new List<ProjectMember>();
     }
 
 }

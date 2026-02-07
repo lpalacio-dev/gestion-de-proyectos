@@ -49,10 +49,10 @@ namespace gestion_de_proyectos.Models
 
         // Columna: id_asignado_a (FK, nullable)
         [ForeignKey(nameof(AssignedUser))]
-        public Guid? AssignedToId { get; set; }
+        public string? AssignedToId { get; set; } // ¡Cambiado de Guid? a string?!
 
-        // Navigation Property: Relación N:1 con User (El usuario responsable/asignado)
-        public User? AssignedUser { get; set; }
+        // Navigation Property: Relación N:1 con ApplicationUser (El usuario responsable/asignado)
+        public ApplicationUser? AssignedUser { get; set; } // ¡Cambiado de User a ApplicationUser!
     }
 
 }

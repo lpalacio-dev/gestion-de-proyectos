@@ -1,0 +1,13 @@
+﻿# Base de Datos
+DB_PASSWORD=postgres
+
+# JWT
+Jwt__Key=EstaEsUnaClaveSecretaMuyLargaDeMasDe32CaracteresParaJWT
+
+# AWS (Nombres estándar que el SDK entiende)
+AWS_ACCESS_KEY_ID=tu_access_key_real
+AWS_SECRET_ACCESS_KEY=tu_secret_key_real
+AWS_REGION=us-east-1
+
+# Tu variable personalizada para el bucket
+S3_BUCKET_NAME=nombre-de-tu-bucket
