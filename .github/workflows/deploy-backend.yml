@@ -100,6 +100,7 @@ jobs:
       name: ${{ github.ref == 'refs/heads/main' && 'production' || 'development' }}
     
     steps:
+      
       - name: Set URL
         run: |
           if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
@@ -107,6 +108,8 @@ jobs:
           else
             echo "APP_URL=${{ secrets.DEV_URL }}" >> $GITHUB_ENV
           fi
+      - name: Debug Image Tag
+        run: echo ${{ needs.build-and-push.outputs.image-tag }}"
       # 1. Checkout (necesario para acceder a task-definition.json si existe)
       - name: Checkout code
         uses: actions/checkout@v4
