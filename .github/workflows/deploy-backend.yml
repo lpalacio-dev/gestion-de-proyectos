@@ -4,12 +4,11 @@ on:
   push:
     branches:
       - develop      # Branch de desarrollo
-      # - main         # Branch de producción
+      # - main       # Branch de producción
   workflow_dispatch: # Permite ejecutar manualmente
 
 env:
-  AWS_REGION: us-east-2                    # Región de AWS
-  ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}  # Nombre del repositorio ECR
+  AWS_REGION: us-east-2
 
 permissions:
   contents: read
@@ -48,24 +47,26 @@ jobs:
         id: build-image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
           # Build a docker container and push it to ECR
-          echo "🔨 Building image: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          echo "🔨 Building image: ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+          docker build -t ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG} .
           
           echo "📤 Pushing image to ECR..."
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}
           
           # También tagear como 'latest' para desarrollo
           echo "🏷️  Tagging as latest..."
-          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          docker tag ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG} ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest
+          docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest
           
           # Export the full image name for use in next job
-          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+          IMAGE_FULL="${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+          echo "image=${IMAGE_FULL}" >> $GITHUB_OUTPUT
           echo "✅ Image pushed successfully!"
-          echo "   📦 Image: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          echo "📦 Full image URI: ${IMAGE_FULL}"
 
   # ============================================================================
   # JOB 2: DEPLOY A ECS FARGATE
@@ -74,14 +75,27 @@ jobs:
     name: Deploy to ECS Fargate
     needs: build-and-push
     runs-on: ubuntu-latest
-    environment: development  # Hardcoded para dev por ahora
+    environment: development
     
     steps:
       # 1. Checkout
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2. Configure AWS credentials
+      # 2. Debug - Verificar que la imagen se pasó correctamente
+      - name: Debug - Check image output
+        run: |
+          echo "🔍 Checking image output from build job..."
+          echo "Image: ${{ needs.build-and-push.outputs.image }}"
+          
+          if [ -z "${{ needs.build-and-push.outputs.image }}" ]; then
+            echo "❌ ERROR: Image output is empty!"
+            exit 1
+          fi
+          
+          echo "✅ Image output is valid"
+
+      # 3. Configure AWS credentials
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -89,7 +103,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # 3. Download task definition (desde ECS actual)
+      # 4. Download task definition (desde ECS actual)
       - name: Download task definition
         run: |
           echo "📥 Downloading current task definition..."
@@ -100,7 +114,7 @@ jobs:
           
           echo "✅ Task definition downloaded"
 
-      # 4. Fill in the new image ID in the Amazon ECS task definition
+      # 5. Fill in the new image ID in the Amazon ECS task definition
       - name: Fill in the new image ID in the task definition
         id: task-def
         uses: aws-actions/amazon-ecs-render-task-definition@v1
@@ -109,7 +123,7 @@ jobs:
           container-name: ${{ secrets.CONTAINER_NAME }}
           image: ${{ needs.build-and-push.outputs.image }}
 
-      # 5. Deploy Amazon ECS task definition
+      # 6. Deploy Amazon ECS task definition
       - name: Deploy Amazon ECS task definition
         uses: aws-actions/amazon-ecs-deploy-task-definition@v1
         with:
@@ -118,7 +132,7 @@ jobs:
           cluster: ${{ secrets.ECS_CLUSTER }}
           wait-for-service-stability: true
 
-      # 6. Deployment success notification
+      # 7. Deployment success notification
       - name: Deployment notification
         if: success()
         run: |
@@ -162,7 +176,7 @@ jobs:
             exit 1
           fi
           
-          echo "Task ARN: $TASK_ARN"
+          echo "📋 Task ARN: $TASK_ARN"
           
           # 2. Obtener el ID de la Interfaz de Red (ENI)
           ENI_ID=$(aws ecs describe-tasks \
@@ -171,7 +185,7 @@ jobs:
             --query 'tasks[0].attachments[0].details[?name==`networkInterfaceId`].value' \
             --output text)
           
-          echo "ENI ID: $ENI_ID"
+          echo "🔌 ENI ID: $ENI_ID"
           
           # 3. Obtener la IP Pública de esa ENI
           PUBLIC_IP=$(aws ec2 describe-network-interfaces \
@@ -204,6 +218,10 @@ jobs:
               echo "✅ Health check passed!"
               echo "🎉 Application is healthy and running"
               echo "🌐 Access your API at: http://$PUBLIC_IP"
+              echo ""
+              echo "📝 Useful endpoints:"
+              echo "   Health: http://$PUBLIC_IP/healthz"
+              echo "   Swagger: http://$PUBLIC_IP/swagger"
               exit 0
             fi
             
@@ -215,9 +233,20 @@ jobs:
           done
           
           echo ""
-          echo "❌ Health check failed after 15 attempts"
-          echo "💡 Check CloudWatch Logs for errors:"
+          echo "❌ Health check failed after 15 attempts (2.5 minutes)"
+          echo ""
+          echo "💡 Troubleshooting steps:"
+          echo "1. Check CloudWatch Logs:"
           echo "   aws logs tail /ecs/gestion-proyectos --follow"
+          echo ""
+          echo "2. Check task status:"
+          echo "   aws ecs describe-services --cluster ${{ secrets.ECS_CLUSTER }} --services ${{ secrets.ECS_SERVICE }}"
+          echo ""
+          echo "3. Common issues:"
+          echo "   - App not exposing /healthz endpoint"
+          echo "   - App not listening on port 8080"
+          echo "   - Security group blocking port 8080"
+          echo "   - App crashing during startup"
           exit 1
 
   # ============================================================================
@@ -251,8 +280,8 @@ jobs:
   #         echo "✅ Service scaled down. No tasks are running."
   #         echo "💰 You're no longer being charged for running tasks"
   #         echo ""
-  #         echo "To scale back up manually:"
-  #         echo "  aws ecs update-service \\"
-  #         echo "    --cluster ${{ secrets.ECS_CLUSTER }} \\"
-  #         echo "    --service ${{ secrets.ECS_SERVICE }} \\"
-  #         echo "    --desired-count 1"
+  #         echo "📝 To scale back up manually:"
+  #         echo "   aws ecs update-service \\"
+  #         echo "     --cluster ${{ secrets.ECS_CLUSTER }} \\"
+  #         echo "     --service ${{ secrets.ECS_SERVICE }} \\"
+  #         echo "     --desired-count 1"
