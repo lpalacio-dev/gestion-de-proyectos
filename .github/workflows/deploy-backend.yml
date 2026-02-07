@@ -77,11 +77,18 @@ jobs:
         docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
         echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
-    - name: Fill in the new image ID in the Amazon ECS task definition
+    # ESTE PASO ES EL QUE TE FALTA
+    - name: Download task definition from AWS
+      run: |
+        aws ecs describe-task-definition \
+          --task-definition ${{ secrets.TASK_FAMILY }} \
+          --query taskDefinition > task-definition.json
+
+    - name: Fill in the new image ID
       id: task-def
       uses: aws-actions/amazon-ecs-render-task-definition@v1
       with:
-        task-definition: ${{ env.ECS_TASK_DEFINITION }}
+        task-definition: task-definition.json # Ahora el archivo existe porque lo bajamos arriba
         container-name: ${{ env.CONTAINER_NAME }}
         image: ${{ steps.build-image.outputs.image }}
 
