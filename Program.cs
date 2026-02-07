@@ -93,9 +93,9 @@ if (app.Environment.IsDevelopment())
 }
 
 //app.UseHttpsRedirection(); Comentar en caso de no usar Load balancer
-app.UseAuthentication();
+//app.UseAuthentication();
 app.UseCors("WebAppProxy");
-app.UseAuthorization();
+//app.UseAuthorization();
 
 app.MapControllers();
 app.MapHealthChecks("/healthz");
