@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     
     outputs:
-      image-tag: ${{ steps.meta.outputs.tags }}
+      image-tag: ${{ steps.image-info.outputs.full_tag }}
       
     steps:
       # 1. Checkout del código
@@ -68,6 +68,7 @@ jobs:
 
       # 8. Build and push Docker image
       - name: Build and push Docker image
+        id: build-step # Añadimos un ID para rastrear el proceso
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -78,11 +79,13 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # 9. Output image details
-      - name: Image details
+      # 9. NUEVO PASO: Extraer y exportar la tag específica
+      - name: Export image tag
+        id: image-info
         run: |
-          echo "Image pushed to ECR:"
-          echo "${{ steps.meta.outputs.tags }}"
+          # Tomamos la primera tag generada (la que tiene el SHA)
+          TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -n 1)
+          echo "full_tag=$TAG" >> $GITHUB_OUTPUT
 
   # ============================================================================
   # JOB 2: DEPLOY A ECS FARGATE
