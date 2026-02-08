@@ -96,7 +96,6 @@ if (app.Environment.IsDevelopment())
 //app.UseAuthentication();
 app.UseCors("WebAppProxy");
 //app.UseAuthorization();
-
 app.MapControllers();
 app.MapHealthChecks("/healthz");
 
