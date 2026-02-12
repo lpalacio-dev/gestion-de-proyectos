@@ -1,4 +1,7 @@
-﻿using gestion_de_proyectos;
+﻿using Amazon.Lambda;
+using Amazon.S3;
+using DotNetEnv;
+using gestion_de_proyectos;
 using gestion_de_proyectos.Mappers;
 using gestion_de_proyectos.Models;
 using gestion_de_proyectos.Repositories;
@@ -8,8 +11,6 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
-using Amazon.S3;
-using DotNetEnv;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -23,6 +24,7 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(connectionString));
 
 builder.Services.AddAWSService<IAmazonS3>();
+builder.Services.AddAWSService<IAmazonLambda>();
 
 // Registrar los servicios de Identity
 builder.Services.AddIdentity<ApplicationUser, IdentityRole>()
