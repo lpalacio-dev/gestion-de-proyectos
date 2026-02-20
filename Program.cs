@@ -1,4 +1,7 @@
-﻿using gestion_de_proyectos;
+﻿using Amazon.Lambda;
+using Amazon.S3;
+using DotNetEnv;
+using gestion_de_proyectos;
 using gestion_de_proyectos.Mappers;
 using gestion_de_proyectos.Models;
 using gestion_de_proyectos.Repositories;
@@ -8,8 +11,6 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
-using Amazon.S3;
-using DotNetEnv;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -23,6 +24,7 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(connectionString));
 
 builder.Services.AddAWSService<IAmazonS3>();
+builder.Services.AddAWSService<IAmazonLambda>();
 
 // Registrar los servicios de Identity
 builder.Services.AddIdentity<ApplicationUser, IdentityRole>()
@@ -92,11 +94,10 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
-app.UseAuthentication();
+//app.UseHttpsRedirection(); Comentar en caso de no usar Load balancer
+//app.UseAuthentication();
 app.UseCors("WebAppProxy");
 app.UseAuthorization();
-
 app.MapControllers();
 app.MapHealthChecks("/healthz");
 
@@ -104,86 +105,86 @@ app.MapHealthChecks("/healthz");
 // FASE 1: SEEDING DE ROLES GLOBALES AJUSTADOS
 // ============================================================================
 
-//using (var scope = app.Services.CreateScope())
-//{
-//    var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
-//    var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+using (var scope = app.Services.CreateScope())
+{
+    var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
+    var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
 
-//    // Definir roles según el plan
-//    // - Admin: Acceso total al sistema
-//    // - User: Rol base para todos los usuarios autenticados
-//    string[] roles = { "Admin", "User" };
+    // Definir roles según el plan
+    // - Admin: Acceso total al sistema
+    // - User: Rol base para todos los usuarios autenticados
+    string[] roles = { "Admin", "User" };
 
-//    // Crear roles si no existen
-//    foreach (var role in roles)
-//    {
-//        if (!await roleManager.RoleExistsAsync(role))
-//        {
-//            await roleManager.CreateAsync(new IdentityRole(role));
-//            Console.WriteLine($"✓ Rol '{role}' creado exitosamente.");
-//        }
-//        else
-//        {
-//            Console.WriteLine($"→ Rol '{role}' ya existe.");
-//        }
-//    }
+    // Crear roles si no existen
+    foreach (var role in roles)
+    {
+        if (!await roleManager.RoleExistsAsync(role))
+        {
+            await roleManager.CreateAsync(new IdentityRole(role));
+            Console.WriteLine($"✓ Rol '{role}' creado exitosamente.");
+        }
+        else
+        {
+            Console.WriteLine($"→ Rol '{role}' ya existe.");
+        }
+    }
 
-//    // ============================================================================
-//    // CREAR USUARIO ADMINISTRADOR POR DEFECTO
-//    // ============================================================================
-//    const string adminEmail = "admin@gestion.com";
-//    const string adminUsername = "admin";
-//    const string adminPassword = "Admin123!"; // ¡Cambiar en producción!
+    // ============================================================================
+    // CREAR USUARIO ADMINISTRADOR POR DEFECTO
+    // ============================================================================
+    const string adminEmail = "admin@gestion.com";
+    const string adminUsername = "admin";
+    const string adminPassword = "Admin123!"; // ¡Cambiar en producción!
 
-//    var adminUser = await userManager.FindByNameAsync(adminUsername);
+    var adminUser = await userManager.FindByNameAsync(adminUsername);
 
-//    if (adminUser == null)
-//    {
-//        adminUser = new ApplicationUser
-//        {
-//            UserName = adminUsername,
-//            Email = adminEmail,
-//            EmailConfirmed = true,
-//            SecurityStamp = Guid.NewGuid().ToString(),
-//            RegistrationDate = DateTime.UtcNow
-//        };
+    if (adminUser == null)
+    {
+        adminUser = new ApplicationUser
+        {
+            UserName = adminUsername,
+            Email = adminEmail,
+            EmailConfirmed = true,
+            SecurityStamp = Guid.NewGuid().ToString(),
+            RegistrationDate = DateTime.UtcNow
+        };
 
-//        var result = await userManager.CreateAsync(adminUser, adminPassword);
+        var result = await userManager.CreateAsync(adminUser, adminPassword);
 
-//        if (result.Succeeded)
-//        {
-//            // Asignar rol Admin
-//            await userManager.AddToRoleAsync(adminUser, "Admin");
-//            // También asignar rol User (todos los usuarios deben tenerlo)
-//            await userManager.AddToRoleAsync(adminUser, "User");
-//        }
-//        else
-//        {
-//            foreach (var error in result.Errors)
-//            {
-//                Console.WriteLine($"  - {error.Description}");
-//            }
-//        }
-//    }
-//    else
-//    {
-//        Console.WriteLine($"→ Usuario administrador '{adminUsername}' ya existe.");
+        if (result.Succeeded)
+        {
+            // Asignar rol Admin
+            await userManager.AddToRoleAsync(adminUser, "Admin");
+            // También asignar rol User (todos los usuarios deben tenerlo)
+            await userManager.AddToRoleAsync(adminUser, "User");
+        }
+        else
+        {
+            foreach (var error in result.Errors)
+            {
+                Console.WriteLine($"  - {error.Description}");
+            }
+        }
+    }
+    else
+    {
+        Console.WriteLine($"→ Usuario administrador '{adminUsername}' ya existe.");
 
-//        // Verificar que tenga los roles correctos
-//        var userRoles = await userManager.GetRolesAsync(adminUser);
+        // Verificar que tenga los roles correctos
+        var userRoles = await userManager.GetRolesAsync(adminUser);
 
-//        if (!userRoles.Contains("Admin"))
-//        {
-//            await userManager.AddToRoleAsync(adminUser, "Admin");
-//            Console.WriteLine($"  ✓ Rol 'Admin' agregado al usuario.");
-//        }
+        if (!userRoles.Contains("Admin"))
+        {
+            await userManager.AddToRoleAsync(adminUser, "Admin");
+            Console.WriteLine($"  ✓ Rol 'Admin' agregado al usuario.");
+        }
 
-//        if (!userRoles.Contains("User"))
-//        {
-//            await userManager.AddToRoleAsync(adminUser, "User");
-//            Console.WriteLine($"  ✓ Rol 'User' agregado al usuario.");
-//        }
-//    }
-//}
+        if (!userRoles.Contains("User"))
+        {
+            await userManager.AddToRoleAsync(adminUser, "User");
+            Console.WriteLine($"  ✓ Rol 'User' agregado al usuario.");
+        }
+    }
+}
 
 app.Run();
