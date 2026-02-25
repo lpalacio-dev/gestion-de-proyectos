@@ -1,5 +1,5 @@
-﻿using Amazon.Lambda;
-using Amazon.S3;
+﻿using Amazon.S3;
+using Amazon.SimpleNotificationService;
 using DotNetEnv;
 using gestion_de_proyectos;
 using gestion_de_proyectos.Mappers;
@@ -24,7 +24,7 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(connectionString));
 
 builder.Services.AddAWSService<IAmazonS3>();
-builder.Services.AddAWSService<IAmazonLambda>();
+builder.Services.AddAWSService<IAmazonSimpleNotificationService>();
 
 // Registrar los servicios de Identity
 builder.Services.AddIdentity<ApplicationUser, IdentityRole>()
@@ -78,7 +78,7 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("WebAppProxy", app =>
     {
-        app.WithOrigins("http://localhost:4200") // El puerto de tu Angular
+        app.WithOrigins("*") // El puerto de tu Angular
            .AllowAnyHeader()
            .AllowAnyMethod();
     });
