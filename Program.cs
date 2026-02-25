@@ -2,6 +2,7 @@
 using Amazon.SimpleNotificationService;
 using DotNetEnv;
 using gestion_de_proyectos;
+using gestion_de_proyectos.Data;
 using gestion_de_proyectos.Mappers;
 using gestion_de_proyectos.Models;
 using gestion_de_proyectos.Repositories;
@@ -92,99 +93,21 @@ if (app.Environment.IsDevelopment())
     app.UseDeveloperExceptionPage(); // Esto ayuda a ver más detalles
     app.UseSwagger();
     app.UseSwaggerUI();
+    app.UseHttpsRedirection();
 }
 
-//app.UseHttpsRedirection(); Comentar en caso de no usar Load balancer
-//app.UseAuthentication();
+app.UseAuthentication();
 app.UseCors("WebAppProxy");
 app.UseAuthorization();
 app.MapControllers();
 app.MapHealthChecks("/healthz");
 
-// ============================================================================
-// FASE 1: SEEDING DE ROLES GLOBALES AJUSTADOS
-// ============================================================================
-
+// Migracionees y seeder
 using (var scope = app.Services.CreateScope())
 {
-    var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
-    var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-
-    // Definir roles según el plan
-    // - Admin: Acceso total al sistema
-    // - User: Rol base para todos los usuarios autenticados
-    string[] roles = { "Admin", "User" };
-
-    // Crear roles si no existen
-    foreach (var role in roles)
-    {
-        if (!await roleManager.RoleExistsAsync(role))
-        {
-            await roleManager.CreateAsync(new IdentityRole(role));
-            Console.WriteLine($"✓ Rol '{role}' creado exitosamente.");
-        }
-        else
-        {
-            Console.WriteLine($"→ Rol '{role}' ya existe.");
-        }
-    }
-
-    // ============================================================================
-    // CREAR USUARIO ADMINISTRADOR POR DEFECTO
-    // ============================================================================
-    const string adminEmail = "admin@gestion.com";
-    const string adminUsername = "admin";
-    const string adminPassword = "Admin123!"; // ¡Cambiar en producción!
-
-    var adminUser = await userManager.FindByNameAsync(adminUsername);
-
-    if (adminUser == null)
-    {
-        adminUser = new ApplicationUser
-        {
-            UserName = adminUsername,
-            Email = adminEmail,
-            EmailConfirmed = true,
-            SecurityStamp = Guid.NewGuid().ToString(),
-            RegistrationDate = DateTime.UtcNow
-        };
-
-        var result = await userManager.CreateAsync(adminUser, adminPassword);
-
-        if (result.Succeeded)
-        {
-            // Asignar rol Admin
-            await userManager.AddToRoleAsync(adminUser, "Admin");
-            // También asignar rol User (todos los usuarios deben tenerlo)
-            await userManager.AddToRoleAsync(adminUser, "User");
-        }
-        else
-        {
-            foreach (var error in result.Errors)
-            {
-                Console.WriteLine($"  - {error.Description}");
-            }
-        }
-    }
-    else
-    {
-        Console.WriteLine($"→ Usuario administrador '{adminUsername}' ya existe.");
-
-        // Verificar que tenga los roles correctos
-        var userRoles = await userManager.GetRolesAsync(adminUser);
-
-        if (!userRoles.Contains("Admin"))
-        {
-            await userManager.AddToRoleAsync(adminUser, "Admin");
-            Console.WriteLine($"  ✓ Rol 'Admin' agregado al usuario.");
-        }
-
-        if (!userRoles.Contains("User"))
-        {
-            await userManager.AddToRoleAsync(adminUser, "User");
-            Console.WriteLine($"  ✓ Rol 'User' agregado al usuario.");
-        }
-    }
+    var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+    await db.Database.MigrateAsync();
+    await DbSeeder.SeedAsync(scope.ServiceProvider);
 }
 
 app.Run();
