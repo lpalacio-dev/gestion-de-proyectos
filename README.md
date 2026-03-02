@@ -22,7 +22,7 @@ Backend REST API para la gestión colaborativa de proyectos y tareas, con autent
 
 ## 🎯 Descripción General
 
-Sistema completo de gestión de proyectos que permite a equipos organizar tareas, gestionar miembros con roles diferenciados y controlar el acceso a recursos mediante un sistema de permisos granular de 5 niveles. El backend está construido sobre ASP.NET Core 8 y se despliega en **AWS ECS Fargate** con base de datos **Amazon RDS PostgreSQL**.
+Sistema completo de gestión de proyectos que permite a equipos organizar tareas, gestionar miembros con roles diferenciados y controlar el acceso a recursos mediante un sistema de permisos granular de 5 niveles. El backend está construido sobre ASP.NET Core 8, se despliega en **AWS ECS Fargate** con **Application Load Balancer** y **Auto Scaling**, y utiliza una arquitectura event-driven basada en SNS + SQS para el procesamiento asíncrono desacoplado.
 
 | Métrica | Valor |
 |---|---|
@@ -73,7 +73,7 @@ Sistema completo de gestión de proyectos que permite a equipos organizar tareas
 ```
 ┌─────────────────────────────────────────┐
 │         Capa de Presentación            │
-│       (REST API · 26 Endpoints)         │
+│       (REST API · 28 Endpoints)         │
 ├─────────────────────────────────────────┤
 │         Capa de Servicios               │
 │   (Lógica de Negocio + Autorización)    │
@@ -101,10 +101,13 @@ Sistema completo de gestión de proyectos que permite a equipos organizar tareas
 | AutoMapper | Mapeo de modelos a DTOs |
 | JWT Bearer | Autenticación stateless |
 | Amazon ECS Fargate | Hosting del contenedor |
-| Amazon RDS | Base de datos administrada |
+| Application Load Balancer | Entrada HTTPS y health checks |
+| Auto Scaling | Escalado dinámico por CPU (1–4 tasks) |
+| Amazon RDS Aurora | Base de datos administrada |
 | Amazon S3 | Almacenamiento de imágenes |
-| AWS Lambda | Procesamiento asíncrono |
-| Amazon SES | Envío de emails |
+| Amazon SNS | Broker de eventos (pub/sub) |
+| Amazon SQS | Colas de mensajes con DLQ |
+| AWS Lambda (×3) | Procesamiento asíncrono desacoplado |
 | Docker | Containerización |
 | GitHub Actions | CI/CD pipeline |
 
@@ -119,13 +122,19 @@ Backend (ECS Fargate)
         │
         ├──► S3 (uploads de imágenes)
         │         │
-        │         └──► ImageProcessorLambda
+        │         └──► ImageProcessorLambda  [trigger: S3 ObjectCreated]
         │                   Genera thumbnail 150×150
         │                   y versión optimizada 500×500 con compresión JPEG
         │
-        └──► Invocación directa ──► TaskNotifierLambda
-                                    Notifica por email (SES) cuando
-                                    se asigna o actualiza una tarea
+        └──► SNS Topic: task-events-topic  [PublishAsync — fire and forget]
+                    │
+                    │  Fan-out simultáneo
+                    └──► SQS: task-email-queue  (retención 1d · DLQ tras 3 fallos)
+                              │
+                              └──► TaskNotifierLambda
+                                        Envía email HTML al usuario asignado vía SES
+               
+                                        
 ```
 
 ### ImageProcessorLambda
@@ -135,8 +144,8 @@ Backend (ECS Fargate)
 
 ### TaskNotifierLambda
 
-**Trigger:** Invocación directa desde `TaskService.cs` al asignar o actualizar una tarea
-**Resultado:** Envía un email HTML al usuario correspondiente vía Amazon SES.
+**Trigger:** SQS `task-email-queue` (suscrita al SNS Topic)
+**Resultado:** Deserializa el sobre SNS, construye un email HTML y lo envía al usuario asignado vía Amazon SES. Reporta fallos individuales con `SQSBatchResponse` para no bloquear el batch completo.tado:** Envía un email HTML al usuario correspondiente vía Amazon SES.
 
 ### Permisos IAM requeridos por las Lambdas
 
@@ -145,6 +154,7 @@ Backend (ECS Fargate)
   "Effect": "Allow",
   "Action": [
     "s3:GetObject", "s3:PutObject", "s3:DeleteObject",
+    "sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes",
     "ses:SendEmail", "ses:SendRawEmail"
   ]
 }
@@ -293,9 +303,13 @@ GitHub Actions
      ▼
 Amazon ECR ──► ECS Fargate (Task Definition)
                       │
-                      ├──► Amazon RDS PostgreSQL
+                      ├──► Application Load Balancer (HTTPS · health checks)
+                      ├──► Auto Scaling (1–4 tasks · políticas CPU 30/70%)
+                      ├──► Amazon RDS Aurora PostgreSQL
                       ├──► Amazon S3
-                      └──► AWS Lambda (×2)
+                      └──► SNS Topic
+                                 └──► SQS task-email-queue ──► TaskNotifierLambda
+                                 
 ```
 
 ### Servicios requeridos
@@ -304,11 +318,15 @@ Amazon ECR ──► ECS Fargate (Task Definition)
 |---|---|
 | Amazon ECR | Registro de imágenes Docker |
 | Amazon ECS Fargate | Ejecución del contenedor sin servidor |
-| Amazon RDS PostgreSQL | Base de datos administrada |
+| Application Load Balancer | Entrada HTTPS, health checks y routing |
+| Auto Scaling | Escalado dinámico basado en CPU |
+| Amazon RDS Aurora | Base de datos administrada |
 | Amazon S3 | Almacenamiento de imágenes de perfil |
-| AWS Lambda (×2) | Procesamiento asíncrono |
+| Amazon SNS | Broker de eventos pub/sub |
+| Amazon SQS (×2) | Colas desacopladas con DLQ |
+| AWS Lambda (×2) | Procesamiento asíncrono desacoplado |
 | Amazon SES | Envío de notificaciones por email |
-| CloudWatch | Logs, métricas y alertas |
+
 
 ### Pasos de configuración inicial
 
@@ -422,6 +440,7 @@ Variables que deben configurarse en la **ECS Task Definition**. Los valores sens
 | `Jwt__Audience` | Audience del token JWT | ❌ |
 | `AWS__Region` | Región AWS (ej. `us-east-2`) | ❌ |
 | `AWS__S3BucketName` | Nombre del bucket S3 | ❌ |
+| `AWS__SnsTopicArn` | ARN del SNS Topic para eventos de tareas | ❌ |
 | `ASPNETCORE_ENVIRONMENT` | `Production` | ❌ |
 
 ---
@@ -430,14 +449,16 @@ Variables que deben configurarse en la **ECS Task Definition**. Los valores sens
 
 - [ ] Cambiar credenciales del usuario admin por defecto
 - [ ] Almacenar todos los secretos en AWS Secrets Manager
-- [ ] Habilitar HTTPS y configurar certificado SSL/TLS
+- [ ] Habilitar HTTPS y configurar certificado SSL/TLS en el ALB
 - [ ] Configurar CORS con dominios específicos permitidos
 - [ ] Configurar Security Groups con acceso mínimo necesario
 - [ ] Activar backups automáticos en RDS
-- [ ] Configurar alertas en CloudWatch para errores y latencia
+- [ ] Configurar alertas en CloudWatch para errores, latencia y DLQ
 - [ ] Habilitar escaneo de vulnerabilidades en ECR
 - [ ] Implementar rate limiting en la API
 - [ ] Configurar Multi-AZ en RDS para alta disponibilidad
+- [ ] Verificar email remitente en SES y solicitar salida del Sandbox
+- [ ] Confirmar suscripciones SNS → SQS activas con estado `Enabled`
 
 ---
 
