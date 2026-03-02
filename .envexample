@@ -11,3 +11,4 @@ AWS_REGION=us-east-1
 
 # Tu variable personalizada para el bucket
 S3_BUCKET_NAME=nombre-de-tu-bucket
+AWS__SnsTopicArn=

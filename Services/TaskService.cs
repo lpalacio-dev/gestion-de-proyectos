@@ -7,9 +7,9 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Task = System.Threading.Tasks.Task;
 using EntityTask = gestion_de_proyectos.Models.Task; // Alias para evitar ambigüedad;
-using Amazon.Lambda;
-using Amazon.Lambda.Model;
 using System.Text.Json;
+using Amazon.SimpleNotificationService;
+using Amazon.SimpleNotificationService.Model;
 
 
 namespace gestion_de_proyectos.Services
@@ -22,26 +22,31 @@ namespace gestion_de_proyectos.Services
         private readonly IProjectService _projectService; // Para verificar el contexto del proyecto
         private readonly IUserContextAccessor _userContextAccessor;
         private readonly IMapper _mapper;
-        private readonly IAmazonLambda _lambdaClient;              // NUEVO
+        private readonly IAmazonSimpleNotificationService _snsClient;             // NUEVO
         private readonly UserManager<ApplicationUser> _userManager; // NUEVO
         private readonly ApplicationDbContext _dbContext;
+        private readonly string _snsTopicArn;
 
         public TaskService(
             ITaskRepository taskRepository,
             IProjectService projectService,
             IUserContextAccessor userContextAccessor,
             IMapper mapper,
-            IAmazonLambda lambdaClient,
+            IAmazonSimpleNotificationService snsClient,
             UserManager<ApplicationUser> userManager,
-            ApplicationDbContext dbContext)
+            ApplicationDbContext dbContext,
+            IConfiguration configuration
+            )
         {
             _taskRepository = taskRepository;
             _projectService = projectService;
             _userContextAccessor = userContextAccessor;
             _mapper = mapper;
-            _lambdaClient = lambdaClient;
+            _snsClient = snsClient;
             _userManager = userManager;
             _dbContext = dbContext;
+            _snsTopicArn = configuration["AWS:SnsTopicArn"]
+                       ?? throw new Exception("AWS:SnsTopicArn no configurado");
         }
 
         // Método auxiliar para verificación de autorización del contexto
@@ -168,45 +173,29 @@ namespace gestion_de_proyectos.Services
             await _taskRepository.SaveChangesAsync();
         }
 
-        // ====================================================================
-        // NUEVO: lógica de notificación Lambda (fire-and-forget)
-        // ====================================================================
-
         /// <summary>
-        /// Invoca TaskNotifierLambda de forma ASÍNCRONA (InvocationType.Event).
-        /// 
-        /// Fire-and-forget: si Lambda falla, solo se loggea — no interrumpe la operación principal.
-        /// Esto es intencional: un fallo en notificaciones no debe impedir que la tarea se guarde.
-        /// 
-        /// Require que task.AssignedToId esté poblado antes de llamar.
+        /// NUEVA implementación: publica en SNS en lugar de invocar Lambda directamente.
+        /// SNS distribuye el mensaje a todas las colas suscritas (SQS).
+        /// Fire-and-forget: si SNS falla, solo se loggea.
         /// </summary>
         private async Task SendNotificationAsync(EntityTask task, string eventType, string? oldStatus)
         {
             try
             {
-                // Obtener nombre del proyecto
-                var project = await _dbContext.Projects
-                    .AsNoTracking()
-                    .FirstOrDefaultAsync(p => p.Id == task.ProjectId);
-
-                // Obtener datos del usuario asignado
+                var project = await _dbContext.Projects.AsNoTracking()
+                                        .FirstOrDefaultAsync(p => p.Id == task.ProjectId);
                 var assignedUser = await _userManager.FindByIdAsync(task.AssignedToId!);
 
-                // Si algún dato falta, loggear y salir silenciosamente
                 if (project == null || assignedUser == null || string.IsNullOrWhiteSpace(assignedUser.Email))
                 {
-                    Console.WriteLine(
-                        $"[TaskService] Notificación omitida para tarea {task.Id}: " +
-                        "no se encontró proyecto o usuario asignado.");
+                    Console.WriteLine($"[TaskService] Notificación omitida para tarea {task.Id}: datos incompletos.");
                     return;
                 }
 
-                // Obtener nombre del usuario que realiza la acción (quien asignó/cambió estado)
                 var currentUserId = _userContextAccessor.GetCurrentUserId();
                 var currentUser = await _userManager.FindByIdAsync(currentUserId);
 
-                // Construir el payload que deserializará TaskNotifierLambda
-                var notificationEvent = new
+                var payload = new
                 {
                     EventType = eventType,
                     TaskId = task.Id.ToString(),
@@ -221,28 +210,31 @@ namespace gestion_de_proyectos.Services
                     DueDate = task.DueDate
                 };
 
-                var invokeRequest = new InvokeRequest
+                // Publicar en SNS — SNS lo distribuye automáticamente a SQS
+                var publishRequest = new PublishRequest
                 {
-                    FunctionName = "TaskNotifierLambda",
-                    // Event = asíncrono (fire-and-forget). Lambda devuelve 202 inmediatamente.
-                    // NO usar RequestResponse aquí porque bloquearía el request del usuario.
-                    InvocationType = InvocationType.Event,
-                    Payload = JsonSerializer.Serialize(notificationEvent)
+                    TopicArn = _snsTopicArn,
+                    Message = JsonSerializer.Serialize(payload),
+                    Subject = $"TaskEvent:{eventType}",  // Útil para filtros en el futuro
+                    MessageAttributes = new Dictionary<string, MessageAttributeValue>
+                    {
+                        // Atributo para filtros de suscripción (útil a futuro)
+                        ["EventType"] = new MessageAttributeValue
+                        {
+                            DataType = "String",
+                            StringValue = eventType
+                        }
+                    }
                 };
 
-                await _lambdaClient.InvokeAsync(invokeRequest);
+                await _snsClient.PublishAsync(publishRequest);
 
-                Console.WriteLine(
-                    $"[TaskService] Notificación '{eventType}' enviada a Lambda " +
-                    $"para tarea {task.Id} → {assignedUser.Email}");
+                Console.WriteLine($"[TaskService] Evento '{eventType}' publicado en SNS para tarea {task.Id}");
             }
             catch (Exception ex)
             {
-                // INTENCIONAL: loggear pero NO relanzar.
-                // Un fallo en notificaciones no debe revertir la transacción principal.
-                Console.WriteLine(
-                    $"[TaskService] Error al invocar TaskNotifierLambda para tarea {task.Id}: " +
-                    $"{ex.GetType().Name}: {ex.Message}");
+                // Intencional: un fallo en notificaciones NO revierte la transacción principal
+                Console.WriteLine($"[TaskService] Error al publicar en SNS para tarea {task.Id}: {ex.GetType().Name}: {ex.Message}");
             }
         }
 
