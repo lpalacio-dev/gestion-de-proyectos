@@ -36,6 +36,7 @@
   <ItemGroup>
     <Folder Include="DTOs\AI\" />
     <Folder Include="Prompts\" />
+    <Folder Include="Services\AI\Providers\" />
   </ItemGroup>
 
 </Project>
