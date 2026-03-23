@@ -13,8 +13,16 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using Prometheus;
+using Serilog;
+using Serilog.Formatting.Compact;
+
+Log.Logger = new LoggerConfiguration()
+    .WriteTo.Console(new CompactJsonFormatter())  // JSON estructurado → Loki lo parsea mejor
+    .Enrich.FromLogContext()
+    .CreateLogger();
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Host.UseSerilog();
 
 // 1. CARGAR VARIABLES DE ENTORNO DESDE .ENV
 Env.Load();
@@ -97,13 +105,13 @@ if (app.Environment.IsDevelopment())
     app.UseHttpsRedirection();
 }
 
+app.UseMetricServer();   // Expone /metrics
+app.UseHttpMetrics();    // Métricas HTTP automáticas (latencia, requests, errores)
 app.UseAuthentication();
 app.UseCors("WebAppProxy");
 app.UseAuthorization();
 app.MapControllers();
 app.MapHealthChecks("/healthz");
-app.UseMetricServer();   // Expone /metrics
-app.UseHttpMetrics();    // Métricas HTTP automáticas (latencia, requests, errores)
 
 // Migracionees y seeder
 using (var scope = app.Services.CreateScope())
