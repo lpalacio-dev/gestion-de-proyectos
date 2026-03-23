@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
+using Prometheus;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -101,6 +102,8 @@ app.UseCors("WebAppProxy");
 app.UseAuthorization();
 app.MapControllers();
 app.MapHealthChecks("/healthz");
+app.UseMetricServer();   // Expone /metrics
+app.UseHttpMetrics();    // Métricas HTTP automáticas (latencia, requests, errores)
 
 // Migracionees y seeder
 using (var scope = app.Services.CreateScope())
