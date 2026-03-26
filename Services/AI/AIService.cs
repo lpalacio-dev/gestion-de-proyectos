@@ -58,9 +58,10 @@ namespace gestion_de_proyectos.Services.AI
             if (!_options.Enabled)
                 throw new LLMUnavailableException("El módulo de IA está desactivado.", Array.Empty<string>());
 
-            _logger.LogInformation(
-                "[AIService] GenerateProject — usuario: {User}, longitud descripción: {Len} chars",
-                _userContextAccessor.GetCurrentUserId(), request.Description.Length);
+            _logger.LogGenerateProjectStarted(
+                _userContextAccessor.GetCurrentUserId(),
+                request.Description.Length,
+                request.MaxTasks);
 
             // Construir el mensaje del usuario con parámetros adicionales
             var userMessage = BuildProjectGenerationMessage(request);
@@ -95,9 +96,11 @@ namespace gestion_de_proyectos.Services.AI
             parsed.UsedFallback        = llmResponse.UsedFallback;
             parsed.GeneratedAt         = DateTime.UtcNow;
 
-            _logger.LogInformation(
-                "[AIService] Proyecto generado: '{Name}', {TaskCount} tareas, proveedor: {Provider}, fallback: {Fallback}",
-                parsed.Name, parsed.Tasks.Count, llmResponse.ProviderName, llmResponse.UsedFallback);
+            _logger.LogGenerateProjectCompleted(
+                parsed.Name,
+                parsed.Tasks.Count,
+                llmResponse.ProviderName,
+                llmResponse.UsedFallback);
 
             return parsed;
         }
@@ -112,9 +115,7 @@ namespace gestion_de_proyectos.Services.AI
         {
             var currentUserId = _userContextAccessor.GetCurrentUserId();
 
-            _logger.LogInformation(
-                "[AIService] ConfirmAndPersist — usuario: {User}, proyecto: '{Name}', tareas: {Tasks}",
-                currentUserId, dto.Name, dto.SelectedTasks.Count);
+            _logger.LogConfirmProjectStarted(currentUserId, dto.Name, dto.SelectedTasks.Count);
 
             // 1. Crear el proyecto usando el servicio existente
             //    ProjectService asigna OwnerId, CreationDate y auto-agrega al owner como miembro.
@@ -163,15 +164,11 @@ namespace gestion_de_proyectos.Services.AI
                 {
                     // Un fallo individual en una tarea no revierte el proyecto ni las demás tareas.
                     failedTasks++;
-                    _logger.LogError(ex,
-                        "[AIService] Error al crear tarea '{Title}' en proyecto {ProjectId}. Se continúa.",
-                        taskDto.Title, projectDto.Id);
+                    _logger.LogTaskCreationError(ex, taskDto.Title, projectDto.Id);
                 }
             }
 
-            _logger.LogInformation(
-                "[AIService] Persistencia completada. Proyecto: {Id}. Tareas creadas: {Created}, fallidas: {Failed}",
-                projectDto.Id, createdTasks, failedTasks);
+            _logger.LogConfirmProjectCompleted(projectDto.Id, createdTasks, failedTasks);
 
             // Retornar el proyecto recién creado (con sus relaciones)
             return await _projectService.GetProjectByIdAsync(projectDto.Id);
@@ -194,9 +191,11 @@ namespace gestion_de_proyectos.Services.AI
             var project = await _projectRepository.GetByIdAsync(projectId)
                 ?? throw new NotFoundException($"Proyecto {projectId} no encontrado.");
 
-            _logger.LogInformation(
-                "[AIService] SuggestTasks — proyecto: '{Name}' ({Id}), tareas existentes: {Count}",
-                project.Name, projectId, project.Tasks.Count);
+            _logger.LogSuggestTasksStarted(
+                currentUserId,
+                projectId,
+                project.Name,
+                project.Tasks.Count);
 
             var userMessage = BuildTaskSuggestionMessage(project);
 
@@ -218,9 +217,7 @@ namespace gestion_de_proyectos.Services.AI
             for (int i = 0; i < suggestions.Count; i++)
                 suggestions[i].OrderIndex = baseIndex + i + 1;
 
-            _logger.LogInformation(
-                "[AIService] {Count} tareas sugeridas para proyecto {Id}. Proveedor: {Provider}",
-                suggestions.Count, projectId, llmResponse.ProviderName);
+            _logger.LogSuggestTasksCompleted(projectId, suggestions.Count, llmResponse.ProviderName);
 
             return suggestions;
         }
@@ -353,9 +350,7 @@ namespace gestion_de_proyectos.Services.AI
             }
             catch (JsonException ex)
             {
-                _logger.LogError(ex,
-                    "[AIService] Error al parsear JSON del proveedor '{Provider}'. Raw: {Raw}",
-                    providerName, sanitized.Length > 500 ? sanitized[..500] + "…" : sanitized);
+                _logger.LogParseError(providerName, "GenerateProject", sanitized);
 
                 throw new LLMParseException(providerName, sanitized, ex);
             }
@@ -406,9 +401,7 @@ namespace gestion_de_proyectos.Services.AI
             }
             catch (JsonException ex)
             {
-                _logger.LogError(ex,
-                    "[AIService] Error al parsear lista de tareas del proveedor '{Provider}'. Raw: {Raw}",
-                    providerName, sanitized.Length > 500 ? sanitized[..500] + "…" : sanitized);
+                _logger.LogParseError(providerName, "SuggestTasks", sanitized);
 
                 throw new LLMParseException(providerName, sanitized, ex);
             }

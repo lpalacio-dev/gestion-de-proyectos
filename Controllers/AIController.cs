@@ -136,7 +136,7 @@ namespace gestion_de_proyectos.Controllers
                 var suggestions = await _aiService.SuggestTasksForProjectAsync(projectId, cancellationToken);
                 return Ok(suggestions);
             }
-            catch (NotFoundException ex)
+            catch (KeyNotFoundException ex)
             {
                 return NotFound(new { Message = ex.Message });
             }

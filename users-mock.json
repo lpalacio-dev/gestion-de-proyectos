@@ -1,0 +1,30 @@
+// {
+//   "username": "admin",
+//   "password": "Admin123!"
+// }
+// {
+//   "username": "owner1",
+//   "password": "Owner123!"
+// }
+{
+  "username": "owner1",
+  "password": "NewOwner456!"
+}
+// {
+//   "username": "projadmin1",
+//   "password": "ProjAdmin123!"
+// }
+// {
+//   "username": "member1",
+//   "password": "Member123!"
+// }
+// {
+//   "username": "outsider1",
+//   "password": "Outsider123!"
+// }
+ //{
+ //  "username": "todelete",
+ //  "email": "todelete@test.com",
+ //  "password": "ToDelete123!"
+ //}
+
